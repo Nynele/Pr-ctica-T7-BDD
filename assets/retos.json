@@ -1,0 +1,398 @@
+[
+  {
+    "id": "Q01",
+    "nivel": 1,
+    "titulo": "Primeras filas",
+    "peticion": "Mostrar todas las columnas de alumnos y limitar la salida a las primeras 20 filas.",
+    "tabla": "alumnos",
+    "elementos_sql": "SELECT * , LIMIT",
+    "consulta_referencia": "SELECT * FROM alumnos LIMIT 20;",
+    "requiere_orden": false,
+    "pistas": [
+      "Usa 'SELECT *' para seleccionar todas las columnas.",
+      "Especifica la tabla con 'FROM alumnos'.",
+      "Limita el resultado con 'LIMIT 20'."
+    ]
+  },
+  {
+    "id": "Q02",
+    "nivel": 1,
+    "titulo": "Selección de columnas",
+    "peticion": "Mostrar id_alumno, nombre, apellido1, localidad y fecha_alta de todos los alumnos.",
+    "tabla": "alumnos",
+    "elementos_sql": "SELECT",
+    "consulta_referencia": "SELECT id_alumno, nombre, apellido1, localidad, fecha_alta FROM alumnos;",
+    "requiere_orden": false,
+    "pistas": [
+      "Enumera las columnas separadas por comas.",
+      "No utilices '*' ya que solo se piden 5 columnas específicas."
+    ]
+  },
+  {
+    "id": "Q03",
+    "nivel": 1,
+    "titulo": "Alias legibles",
+    "peticion": "Mostrar nombre como Nombre, apellido1 como Primer_Apellido y fecha_alta como Alta.",
+    "tabla": "alumnos",
+    "elementos_sql": "Alias (AS)",
+    "consulta_referencia": "SELECT nombre AS Nombre, apellido1 AS Primer_Apellido, fecha_alta AS Alta FROM alumnos;",
+    "requiere_orden": false,
+    "pistas": [
+      "Usa la cláusula 'AS' para renombrar cada columna en el resultado.",
+      "Ejemplo: nombre AS Nombre, apellido1 AS Primer_Apellido."
+    ]
+  },
+  {
+    "id": "Q04",
+    "nivel": 1,
+    "titulo": "Localidades diferentes",
+    "peticion": "Obtener las localidades diferentes del alumnado sin repeticiones.",
+    "tabla": "alumnos",
+    "elementos_sql": "DISTINCT",
+    "consulta_referencia": "SELECT DISTINCT localidad FROM alumnos;",
+    "requiere_orden": false,
+    "pistas": [
+      "Utiliza 'SELECT DISTINCT localidad' para eliminar duplicados."
+    ]
+  },
+  {
+    "id": "Q05",
+    "nivel": 1,
+    "titulo": "Nombre completo concatenado",
+    "peticion": "Crear una columna Alumno concatenando apellido1, apellido2 y nombre.",
+    "tabla": "alumnos",
+    "elementos_sql": "Concatenación ( || )",
+    "consulta_referencia": "SELECT apellido1 || ' ' || apellido2 || ' ' || nombre AS Alumno FROM alumnos;",
+    "requiere_orden": false,
+    "pistas": [
+      "En SQLite el operador de concatenación es '||'.",
+      "Concatena los campos con espacios entre medias y dale el alias 'Alumno'."
+    ]
+  },
+  {
+    "id": "Q06",
+    "nivel": 1,
+    "titulo": "Combinaciones de grupo",
+    "peticion": "Obtener las combinaciones distintas de turno y modalidad existentes.",
+    "tabla": "grupos",
+    "elementos_sql": "DISTINCT",
+    "consulta_referencia": "SELECT DISTINCT turno, modalidad FROM grupos;",
+    "requiere_orden": false,
+    "pistas": [
+      "Usa 'DISTINCT' seguido de las dos columnas: turno, modalidad."
+    ]
+  },
+  {
+    "id": "Q07",
+    "nivel": 2,
+    "titulo": "Matrículas activas",
+    "peticion": "Mostrar las matrículas cuyo estado sea \"Activa\".",
+    "tabla": "matriculas",
+    "elementos_sql": "WHERE =",
+    "consulta_referencia": "SELECT * FROM matriculas WHERE estado = 'Activa';",
+    "requiere_orden": false,
+    "pistas": [
+      "Filtra usando 'WHERE estado = \\'Activa\\''.",
+      "Recuerda que los literales de texto van entre comillas simples en SQL."
+    ]
+  },
+  {
+    "id": "Q08",
+    "nivel": 2,
+    "titulo": "Espacios grandes",
+    "peticion": "Mostrar los espacios con capacidad superior a 30 personas.",
+    "tabla": "espacios",
+    "elementos_sql": "WHERE >",
+    "consulta_referencia": "SELECT * FROM espacios WHERE capacidad > 30;",
+    "requiere_orden": false,
+    "pistas": [
+      "Añade la condición 'WHERE capacidad > 30'."
+    ]
+  },
+  {
+    "id": "Q09",
+    "nivel": 2,
+    "titulo": "Sesiones de febrero",
+    "peticion": "Mostrar las sesiones celebradas entre dos fechas determinadas (del 1 al 28 de febrero de 2026).",
+    "tabla": "sesiones_clase",
+    "elementos_sql": "BETWEEN",
+    "consulta_referencia": "SELECT * FROM sesiones_clase WHERE fecha BETWEEN '2026-02-01' AND '2026-02-28';",
+    "requiere_orden": false,
+    "pistas": [
+      "Usa el operador 'BETWEEN '2026-02-01' AND '2026-02-28'' en la columna fecha."
+    ]
+  },
+  {
+    "id": "Q10",
+    "nivel": 2,
+    "titulo": "Turnos válidos",
+    "peticion": "Mostrar los grupos cuyo turno sea Mañana, Tarde o Noche.",
+    "tabla": "grupos",
+    "elementos_sql": "IN",
+    "consulta_referencia": "SELECT * FROM grupos WHERE turno IN ('Mañana', 'Tarde', 'Noche');",
+    "requiere_orden": false,
+    "pistas": [
+      "Usa la cláusula 'IN ('Mañana', 'Tarde', 'Noche')' sobre el campo turno."
+    ]
+  },
+  {
+    "id": "Q11",
+    "nivel": 2,
+    "titulo": "Títulos de proyecto",
+    "peticion": "Mostrar las actividades cuyo título empiece por \"Proyecto\".",
+    "tabla": "actividades_evaluables",
+    "elementos_sql": "LIKE",
+    "consulta_referencia": "SELECT * FROM actividades_evaluables WHERE titulo LIKE 'Proyecto%';",
+    "requiere_orden": false,
+    "pistas": [
+      "Usa el comodín '%' con el operador LIKE: 'WHERE titulo LIKE \\'Proyecto%\\''."
+    ]
+  },
+  {
+    "id": "Q12",
+    "nivel": 2,
+    "titulo": "Préstamos pendientes",
+    "peticion": "Mostrar los préstamos que todavía no tienen fecha de devolución.",
+    "tabla": "prestamos_equipos",
+    "elementos_sql": "IS NULL",
+    "consulta_referencia": "SELECT * FROM prestamos_equipos WHERE fecha_devolucion IS NULL;",
+    "requiere_orden": false,
+    "pistas": [
+      "Para comprobar ausencia de valor se utiliza 'IS NULL', nunca '= NULL'."
+    ]
+  },
+  {
+    "id": "Q13",
+    "nivel": 3,
+    "titulo": "Tarde y presencial",
+    "peticion": "Mostrar grupos del turno Tarde y modalidad Presencial.",
+    "tabla": "grupos",
+    "elementos_sql": "AND",
+    "consulta_referencia": "SELECT * FROM grupos WHERE turno = 'Tarde' AND modalidad = 'Presencial';",
+    "requiere_orden": false,
+    "pistas": [
+      "Combina dos condiciones con 'AND'."
+    ]
+  },
+  {
+    "id": "Q14",
+    "nivel": 3,
+    "titulo": "Asistencias no presentes",
+    "peticion": "Mostrar asistencias cuyo estado no sea \"Presente\".",
+    "tabla": "asistencias",
+    "elementos_sql": "<> o NOT",
+    "consulta_referencia": "SELECT * FROM asistencias WHERE estado <> 'Presente';",
+    "requiere_orden": false,
+    "pistas": [
+      "Puedes usar el operador '<>' o 'NOT estado = \\'Presente\\''."
+    ]
+  },
+  {
+    "id": "Q15",
+    "nivel": 3,
+    "titulo": "Orden múltiple",
+    "peticion": "Ordenar las actividades por fecha descendente y título ascendente.",
+    "tabla": "actividades_evaluables",
+    "elementos_sql": "ORDER BY múltiple",
+    "consulta_referencia": "SELECT * FROM actividades_evaluables ORDER BY fecha DESC, titulo ASC;",
+    "requiere_orden": true,
+    "pistas": [
+      "Usa 'ORDER BY fecha DESC, titulo ASC'."
+    ]
+  },
+  {
+    "id": "Q16",
+    "nivel": 3,
+    "titulo": "Diez mejores notas",
+    "peticion": "Mostrar las diez calificaciones más altas.",
+    "tabla": "calificaciones",
+    "elementos_sql": "ORDER BY DESC, LIMIT",
+    "consulta_referencia": "SELECT * FROM calificaciones ORDER BY nota DESC LIMIT 10;",
+    "requiere_orden": true,
+    "pistas": [
+      "Ordena de mayor a menor con 'ORDER BY nota DESC' y toma las primeras con 'LIMIT 10'."
+    ]
+  },
+  {
+    "id": "Q17",
+    "nivel": 3,
+    "titulo": "Paginación de alumnado",
+    "peticion": "Mostrar los 25 primeros alumnos ordenados por apellido1 y nombre.",
+    "tabla": "alumnos",
+    "elementos_sql": "ORDER BY, LIMIT",
+    "consulta_referencia": "SELECT * FROM alumnos ORDER BY apellido1, nombre LIMIT 25;",
+    "requiere_orden": true,
+    "pistas": [
+      "Ordena por dos columnas alfabéticamente y corta en 25 filas."
+    ]
+  },
+  {
+    "id": "Q18",
+    "nivel": 3,
+    "titulo": "Duración en horas",
+    "peticion": "Calcular las horas de cada sesión a partir de duración_minutos/60.",
+    "tabla": "sesiones_clase",
+    "elementos_sql": "Cálculo aritmético, alias",
+    "consulta_referencia": "SELECT id_sesion, duracion_minutos / 60.0 AS horas FROM sesiones_clase;",
+    "requiere_orden": false,
+    "pistas": [
+      "Divide por 60.0 para obtener decimales y asigna el alias 'horas'."
+    ]
+  },
+  {
+    "id": "Q19",
+    "nivel": 4,
+    "titulo": "Recuento total de matrículas",
+    "peticion": "Contar el número total de matrículas.",
+    "tabla": "matriculas",
+    "elementos_sql": "COUNT(*)",
+    "consulta_referencia": "SELECT COUNT(*) FROM matriculas;",
+    "requiere_orden": false,
+    "pistas": [
+      "Usa la función de agregación 'COUNT(*)'."
+    ]
+  },
+  {
+    "id": "Q20",
+    "nivel": 4,
+    "titulo": "Comparativa de nulos",
+    "peticion": "Comparar COUNT(*) y COUNT(fecha_devolucion).",
+    "tabla": "prestamos_equipos",
+    "elementos_sql": "COUNT(campo)",
+    "consulta_referencia": "SELECT COUNT(*), COUNT(fecha_devolucion) FROM prestamos_equipos;",
+    "requiere_orden": false,
+    "pistas": [
+      "COUNT(*) cuenta todas las filas, mientras que COUNT(columna) ignora los valores NULL."
+    ]
+  },
+  {
+    "id": "Q21",
+    "nivel": 4,
+    "titulo": "Capacidad de espacios",
+    "peticion": "Obtener la capacidad total y capacidad media de cada tipo de espacio.",
+    "tabla": "espacios",
+    "elementos_sql": "SUM, AVG, GROUP BY",
+    "consulta_referencia": "SELECT tipo, SUM(capacidad), AVG(capacidad) FROM espacios GROUP BY tipo;",
+    "requiere_orden": false,
+    "pistas": [
+      "Agrupa por tipo con 'GROUP BY tipo' y calcula 'SUM(capacidad)' y 'AVG(capacidad)'."
+    ]
+  },
+  {
+    "id": "Q22",
+    "nivel": 4,
+    "titulo": "Rango de fechas por grupo",
+    "peticion": "Obtener la primera y la última fecha de sesión de cada grupo.",
+    "tabla": "sesiones_clase",
+    "elementos_sql": "MIN, MAX, GROUP BY",
+    "consulta_referencia": "SELECT id_grupo, MIN(fecha), MAX(fecha) FROM sesiones_clase GROUP BY id_grupo;",
+    "requiere_orden": false,
+    "pistas": [
+      "Agrupa por 'id_grupo' y extrae 'MIN(fecha)' y 'MAX(fecha)'."
+    ]
+  },
+  {
+    "id": "Q23",
+    "nivel": 4,
+    "titulo": "Asistencias por estado",
+    "peticion": "Contar asistencias por estado y ordenar de mayor a menor frecuencia.",
+    "tabla": "asistencias",
+    "elementos_sql": "COUNT, GROUP BY, ORDER BY",
+    "consulta_referencia": "SELECT estado, COUNT(*) AS total FROM asistencias GROUP BY estado ORDER BY total DESC;",
+    "requiere_orden": true,
+    "pistas": [
+      "Agrupa por estado, cuenta las filas y ordena el recuento de forma descendente."
+    ]
+  },
+  {
+    "id": "Q24",
+    "nivel": 4,
+    "titulo": "Sesiones por docente y grupo",
+    "peticion": "Contar el número de sesiones por docente y grupo.",
+    "tabla": "sesiones_clase",
+    "elementos_sql": "COUNT, GROUP BY múltiple",
+    "consulta_referencia": "SELECT id_docente, id_grupo, COUNT(*) FROM sesiones_clase GROUP BY id_docente, id_grupo;",
+    "requiere_orden": false,
+    "pistas": [
+      "Agrupa por las dos columnas: 'GROUP BY id_docente, id_grupo'."
+    ]
+  },
+  {
+    "id": "Q25",
+    "nivel": 5,
+    "titulo": "Estados de matrícula frecuentes",
+    "peticion": "Mostrar los estados de matrícula con más de 100 registros.",
+    "tabla": "matriculas",
+    "elementos_sql": "GROUP BY, HAVING",
+    "consulta_referencia": "SELECT estado, COUNT(*) FROM matriculas GROUP BY estado HAVING COUNT(*) > 100;",
+    "requiere_orden": false,
+    "pistas": [
+      "Agrupa por estado y filtra el resultado agregado con 'HAVING COUNT(*) > 100'."
+    ]
+  },
+  {
+    "id": "Q26",
+    "nivel": 5,
+    "titulo": "Docentes con alta carga",
+    "peticion": "Mostrar docentes con al menos 15 sesiones registradas.",
+    "tabla": "sesiones_clase",
+    "elementos_sql": "GROUP BY, HAVING",
+    "consulta_referencia": "SELECT id_docente, COUNT(*) FROM sesiones_clase GROUP BY id_docente HAVING COUNT(*) >= 15;",
+    "requiere_orden": false,
+    "pistas": [
+      "Agrupa por 'id_docente' y usa 'HAVING COUNT(*) >= 15'."
+    ]
+  },
+  {
+    "id": "Q27",
+    "nivel": 5,
+    "titulo": "Localidades con más alumnos",
+    "peticion": "Mostrar las localidades con más de 50 alumnos registrados.",
+    "tabla": "alumnos",
+    "elementos_sql": "COUNT, GROUP BY, HAVING",
+    "consulta_referencia": "SELECT localidad, COUNT(*) FROM alumnos GROUP BY localidad HAVING COUNT(*) > 50;",
+    "requiere_orden": false,
+    "pistas": [
+      "Agrupa por localidad y filtra con 'HAVING COUNT(*) > 50'."
+    ]
+  },
+  {
+    "id": "Q28",
+    "nivel": 5,
+    "titulo": "Espacios con alta capacidad media",
+    "peticion": "Mostrar los tipos de espacio cuya capacidad media sea superior a 40 plazas.",
+    "tabla": "espacios",
+    "elementos_sql": "AVG, GROUP BY, HAVING",
+    "consulta_referencia": "SELECT tipo, AVG(capacidad) FROM espacios GROUP BY tipo HAVING AVG(capacidad) > 40;",
+    "requiere_orden": false,
+    "pistas": [
+      "Agrupa por tipo y filtra la media calculada con 'HAVING AVG(capacidad) > 40'."
+    ]
+  },
+  {
+    "id": "Q29",
+    "nivel": 5,
+    "titulo": "Estados de asistencia masivos",
+    "peticion": "Mostrar los estados de asistencia con más de 500 registros ordenados de mayor a menor.",
+    "tabla": "asistencias",
+    "elementos_sql": "COUNT, GROUP BY, HAVING, ORDER BY",
+    "consulta_referencia": "SELECT estado, COUNT(*) AS total FROM asistencias GROUP BY estado HAVING COUNT(*) > 500 ORDER BY total DESC;",
+    "requiere_orden": true,
+    "pistas": [
+      "Combina 'GROUP BY estado', 'HAVING COUNT(*) > 500' y 'ORDER BY total DESC'."
+    ]
+  },
+  {
+    "id": "Q30",
+    "nivel": 5,
+    "titulo": "Top 5 grupos con más matrículas",
+    "peticion": "Mostrar los cinco grupos con mayor número de matrículas.",
+    "tabla": "matriculas",
+    "elementos_sql": "COUNT, GROUP BY, ORDER BY, LIMIT",
+    "consulta_referencia": "SELECT id_grupo, COUNT(*) AS total FROM matriculas GROUP BY id_grupo ORDER BY total DESC LIMIT 5;",
+    "requiere_orden": true,
+    "pistas": [
+      "Agrupa por id_grupo, ordena el conteo de forma descendente y aplica 'LIMIT 5'."
+    ]
+  }
+]
