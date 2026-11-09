@@ -1,0 +1,60 @@
+{
+  "sesion_id": "F6CB8FB6",
+  "equipo_codigo": "Equipo 04",
+  "fecha_inicio": "2026-11-09 11:24:50",
+  "fecha_fin": "2026-11-09 11:29:44",
+  "retos_completados": 0,
+  "total_retos": 30,
+  "total_intentos": 6,
+  "tiempo_total_segundos": 292,
+  "intentos": [
+    {
+      "reto_id": "Q01",
+      "sql": "SELECT alumnos",
+      "timestamp": "11:28:29",
+      "tiempo_segundos": 217,
+      "superado": false,
+      "mensaje_error": "Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7"
+    },
+    {
+      "reto_id": "Q01",
+      "sql": "SELECT alumnos LIMIT 20",
+      "timestamp": "11:28:36",
+      "tiempo_segundos": 225,
+      "superado": false,
+      "mensaje_error": "Error de sintaxis SQL: no such column: alumnos in SELECT alumnos LIMIT 20 at offset 7"
+    },
+    {
+      "reto_id": "Q01",
+      "sql": "SELECT alumnos",
+      "timestamp": "11:28:49",
+      "tiempo_segundos": 238,
+      "superado": false,
+      "mensaje_error": "Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7"
+    },
+    {
+      "reto_id": "Q01",
+      "sql": "SELECT alumnos",
+      "timestamp": "11:28:50",
+      "tiempo_segundos": 238,
+      "superado": false,
+      "mensaje_error": "Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7"
+    },
+    {
+      "reto_id": "Q01",
+      "sql": "SELECT alumnos",
+      "timestamp": "11:28:50",
+      "tiempo_segundos": 238,
+      "superado": false,
+      "mensaje_error": "Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7"
+    },
+    {
+      "reto_id": "Q01",
+      "sql": "SELECT alumnos",
+      "timestamp": "11:28:50",
+      "tiempo_segundos": 239,
+      "superado": false,
+      "mensaje_error": "Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7"
+    }
+  ]
+}

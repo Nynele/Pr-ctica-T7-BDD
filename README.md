@@ -6,14 +6,22 @@
 
 ---
 
-## 📋 Descripción del Proyecto
+## 📋 Novedades y Actualizaciones Recientes
 
-El **Simulador SQL Sprint Davante** es una aplicación de escritorio nativa de ultra-alto rendimiento diseñada para practicar y validar la construcción de sentencias SQL sobre la base de datos relacional de gestión académica y de recursos del centro formativo (`davante_asir.db`).
-
-A diferencia de soluciones convencionales basadas en Electron o Python/Tkinter, esta versión implementa:
-1. **Renderizado acelerado por hardware (GPU):** Utiliza **GPUI** (el motor gráfico desarrollado por el equipo de **Zed**), logrando una tasa de refresco constante de **120+ FPS**, latencia de entrada de sub-milisegundo y un consumo de memoria RAM inferior a **30 MB**.
-2. **Consultas a velocidad nativa (C/Rust ABI):** Comunicación directa en memoria con SQLite sin capas HTTP intermedias ni latencia de red, resolviendo consultas indexadas en **microsegundos (0.01 - 0.04 ms)** sobre una base de datos con más de **425.000 registros**.
-3. **Seguridad y Aislamiento estricto:** Conexión obligatoria en modo lectura (`mode=ro`) y un **autorizador SQLite (`set_authorizer`)** en el nivel C-ABI que deniega tajantemente cualquier intento de ejecución DDL o DML (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `ATTACH`, `PRAGMA`).
+1. **Logotipo Institucional:** Integrado de forma nativa en la cabecera de la aplicación desde `logotipo.png`.
+2. **Puntuación y Categorías por Dificultad (900 Puntos Totales):**
+   * **Nivel 1 (10 pts/reto · Verde Esmeralda):** Selección y Proyección básica.
+   * **Nivel 2 (20 pts/reto · Cian/Azul):** Filtrado condicional con `WHERE`.
+   * **Nivel 3 (30 pts/reto · Violeta):** Ordenación múltiple y límites con `ORDER BY` y `LIMIT`.
+   * **Nivel 4 (40 pts/reto · Ámbar/Naranja):** Resumen de datos y agregaciones (`COUNT`, `AVG`, `SUM`, `GROUP BY`).
+   * **Nivel 5 (50 pts/reto · Rojo Coral):** Agrupación avanzada y filtrado de grupos (`HAVING`).
+3. **Temporizador Global Único (5 Minutos):**
+   * Un único cronómetro de 5 minutos (300 segundos) para resolver todos los retos del sprint.
+   * No se reinicia al cambiar de ejercicio.
+4. **Enfoque Individual:** Eliminada la división por equipos para permitir evaluaciones individuales directas del alumno.
+5. **Exportación 100% Funcional:**
+   * Generación inmediata de `exports/resultados_sprint_sql.json` y `exports/resultados_sprint_sql.csv`.
+   * Modal interactivo que muestra las rutas de los archivos exportados y botón directo para abrir la carpeta en el Explorador de Windows.
 
 ---
 
@@ -38,33 +46,6 @@ La base de datos contiene **12 tablas relacionales** con más de **425.000 regis
 
 ---
 
-## 🎯 Banco de 30 Retos (Cargado externamente desde `assets/retos.json`)
-
-Los ejercicios cubren progresivamente todo el temario de manipulación de datos:
-
-* **Nivel 1 (Q01 - Q06): Selección y proyección básica:**
-  `SELECT *`, columnas concretas, alias con `AS`, eliminación de duplicados con `DISTINCT` y concatenación de cadenas mediante el operador `||`.
-* **Nivel 2 (Q07 - Q12): Filtrado condicional con WHERE:**
-  Operadores relacionales (`=`, `>`), rangos con `BETWEEN`, listas con `IN`, coincidencia de patrones con `LIKE 'Proyecto%'` y control de nulos con `IS NULL`.
-* **Nivel 3 (Q13 - Q18): Ordenación, límites y expresiones:**
-  Lógica booleana `AND`, negación (`<>` o `NOT`), ordenaciones compuestas (`ORDER BY fecha DESC, titulo ASC`), limitación de salida (`LIMIT`) y operaciones aritméticas.
-* **Nivel 4 (Q19 - Q24): Resumen y funciones de agregado:**
-  `COUNT(*)`, `COUNT(columna)` omitiendo nulos, `SUM()`, `AVG()`, `MIN()`, `MAX()`, y agrupamiento simple y multinivel con `GROUP BY`.
-* **Nivel 5 (Q25 - Q30): Filtrado posterior a la agregación con HAVING:**
-  Uso de `HAVING` sobre agregados, combinación de `WHERE` y `HAVING`, y ordenación de conjuntos agrupados (`LIMIT 5`).
-
----
-
-## ⚖️ Motor de Validación Semántica
-
-Siguiendo las directrices del documento oficial (página 10):
-1. **Validación agnóstica del texto:** No se compara la cadena SQL del alumno con la solución; se ejecuta la consulta y se evalúa el resultado generado frente a la consulta de referencia.
-2. **Comparación Multiset:** Para consultas sin requisito de ordenación, las filas se comparan como una bolsa de elementos (*multiset*), garantizando que las consultas sean correctas sin importar el orden no determinista en que SQLite devuelva las filas.
-3. **Tolerancia en punto flotante:** Comparación de números reales (`AVG`, notas, pesos) con un delta $\epsilon < 0.01$.
-4. **Preservación estricta de `NULL`:** Los valores nulos son tratados independientemente de cadenas vacías o ceros.
-
----
-
 ## 🚀 Requisitos e Instalación
 
 ### Prerrequisitos
@@ -84,19 +65,3 @@ cargo test
 # 3. Compilar y lanzar el simulador acelerado por GPU
 cargo run --release
 ```
-
----
-
-## 🎮 Guía de Uso del Simulador
-
-1. **Panel Izquierdo (Banco de Retos):** Selecciona cualquier reto disponible del catálogo (Q01 a Q30). El icono cambiará a `✓` verde conforme los vayas superando.
-2. **Panel Central:**
-   * **Temporizador:** Cuenta atrás de 5 minutos por reto (se vuelve ámbar al restar 1 minuto y rojo en los últimos 30 segundos).
-   * **Paleta Rápida SQL:** Botones para insertar instantáneamente cláusulas clave (`SELECT`, `WHERE`, `GROUP BY`, etc.).
-   * **Editor:** Escribe tu consulta libremente. Pulsa `[▶ Ejecutar y comprobar]` o presiona `Ctrl + Enter`.
-   * **Visor de Resultados:** Muestra las filas devueltas, columnas tipadas y el tiempo de respuesta exacto en milisegundos.
-3. **Panel Derecho:**
-   * **Esquema de BD:** Árbol interactivo para inspeccionar las 12 tablas y sus campos. Haz clic en `+ Insertar` o en el nombre de cualquier columna para añadirla al editor.
-   * **Estadísticas:** Control en tiempo real de aciertos, intentos y cronómetro global.
-4. **Exportación:**
-   * Al finalizar la sesión o pulsando `[💾 Exportar CSV/JSON]`, se generan automáticamente los archivos `resultados_EquipoXX_XXXX.json` y `.csv` con todas las métricas, marcas de tiempo y consultas realizadas para su entrega.

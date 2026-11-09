@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 use uuid::Uuid;
 
 use crate::db::DbManager;
@@ -13,15 +14,13 @@ pub struct SimuladorState {
     pub db: DbManager,
     pub retos: Vec<Reto>,
     pub reto_actual_idx: usize,
-    pub equipo_codigo: String,
     pub participante_nombre: String,
     pub sesion_id: String,
     pub fecha_inicio: String,
 
-    // Temporizador (5 minutos por reto = 300 segundos)
-    pub tiempo_restante_segundos: u32,
+    // Temporizador ÚNICO GLOBAL (5 minutos = 300 segundos para TODO el sprint)
+    pub tiempo_restante_global: u32,
     pub temporizador_activo: bool,
-    pub tiempo_transcurrido_reto: u64,
 
     // Editor SQL
     pub sql_buffer: String,
@@ -43,8 +42,10 @@ pub struct SimuladorState {
 
     // Modales y vistas
     pub mostrar_modal_ranking: bool,
+    pub mostrar_modal_exportacion: bool,
     pub mostrar_pistas: bool,
-    pub mensaje_sistema: Option<String>,
+    pub ruta_export_json: Option<String>,
+    pub ruta_export_csv: Option<String>,
 }
 
 impl SimuladorState {
@@ -79,14 +80,13 @@ impl SimuladorState {
             db,
             retos,
             reto_actual_idx: 0,
-            equipo_codigo: "Equipo 04".to_string(),
             participante_nombre: "Alumno demo".to_string(),
             sesion_id: Uuid::new_v4().to_string()[..8].to_uppercase(),
             fecha_inicio: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
 
-            tiempo_restante_segundos: 300,
+            // TIEMPO GLOBAL DE 5 MINUTOS (300 SEGUNDOS) PARA TODO EL SIMULADOR
+            tiempo_restante_global: 300,
             temporizador_activo: true,
-            tiempo_transcurrido_reto: 0,
 
             sql_buffer: initial_sql,
 
@@ -94,7 +94,7 @@ impl SimuladorState {
             validation_result: None,
             feedback_banner: Some((
                 false,
-                "Preparado: Escribe tu consulta SQL y pulsa 'Ejecutar y comprobar'.".to_string(),
+                "Preparado: Tienes 5 minutos globales para completar los retos. ¡Buena suerte!".to_string(),
             )),
 
             schema,
@@ -106,8 +106,10 @@ impl SimuladorState {
             tiempo_total_segundos: 0,
 
             mostrar_modal_ranking: false,
+            mostrar_modal_exportacion: false,
             mostrar_pistas: false,
-            mensaje_sistema: None,
+            ruta_export_json: None,
+            ruta_export_csv: None,
         }
     }
 
@@ -115,11 +117,35 @@ impl SimuladorState {
         self.retos.get(self.reto_actual_idx)
     }
 
+    /// Calcula la puntuación total acumulada sumando los puntos de cada reto superado
+    pub fn puntos_actuales(&self) -> u32 {
+        self.retos
+            .iter()
+            .filter(|r| self.retos_superados.contains(&r.id))
+            .map(|r| r.puntos())
+            .sum()
+    }
+
+    /// Puntos totales posibles de los 30 retos (N1=6*10, N2=6*20, N3=6*30, N4=6*40, N5=6*50 = 900)
+    pub fn puntos_maximos(&self) -> u32 {
+        self.retos.iter().map(|r| r.puntos()).sum()
+    }
+
     /// Ejecutar y validar la consulta del usuario
     pub fn ejecutar_y_comprobar(&mut self) {
         if self.retos.is_empty() {
             return;
         }
+
+        // Si el tiempo global se agotó, impedir ejecuciones adicionales
+        if self.tiempo_restante_global == 0 {
+            self.feedback_banner = Some((
+                false,
+                "⏱ El tiempo global de 5 minutos ha finalizado. Puedes reiniciar la partida para un nuevo intento.".to_string(),
+            ));
+            return;
+        }
+
         let reto = self.retos[self.reto_actual_idx].clone();
         let sql = self.sql_buffer.trim().to_string();
 
@@ -143,8 +169,9 @@ impl SimuladorState {
                     reto_id: reto.id.clone(),
                     sql: sql.clone(),
                     timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-                    tiempo_segundos: self.tiempo_transcurrido_reto,
+                    tiempo_segundos: self.tiempo_total_segundos,
                     superado: false,
+                    puntos_obtenidos: 0,
                     mensaje_error: Some(err),
                 });
                 return;
@@ -154,6 +181,7 @@ impl SimuladorState {
         // 2. Validación semántica profunda
         let val_res = Validator::validate(&self.db, &reto, &sql);
         let es_superado = val_res.is_valid;
+        let puntos_ganados = if es_superado { reto.puntos() } else { 0 };
 
         *self.intentos_por_reto.entry(reto.id.clone()).or_insert(0) += 1;
 
@@ -161,18 +189,24 @@ impl SimuladorState {
             reto_id: reto.id.clone(),
             sql: sql.clone(),
             timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-            tiempo_segundos: self.tiempo_transcurrido_reto,
+            tiempo_segundos: self.tiempo_total_segundos,
             superado: es_superado,
+            puntos_obtenidos: puntos_ganados,
             mensaje_error: if es_superado { None } else { Some(val_res.message.clone()) },
         });
 
         if es_superado {
-            if !self.retos_superados.contains(&reto.id) {
+            let ya_estaba_superado = self.retos_superados.contains(&reto.id);
+            if !ya_estaba_superado {
                 self.retos_superados.push(reto.id.clone());
             }
             self.feedback_banner = Some((
                 true,
-                format!("¡Correcta! Consulta validada con éxito: {} filas comprobadas.", val_res.rows_matched),
+                format!(
+                    "¡Correcta! (+{} pts) Consulta validada con éxito: {} filas comprobadas.",
+                    reto.puntos(),
+                    val_res.rows_matched
+                ),
             ));
         } else {
             self.feedback_banner = Some((false, format!("{}: {}", val_res.title, val_res.message)));
@@ -186,20 +220,19 @@ impl SimuladorState {
         if self.reto_actual_idx + 1 < self.retos.len() {
             self.seleccionar_reto(self.reto_actual_idx + 1);
         } else {
-            // Fin de la partida: mostrar ranking y exportar
+            // Fin de la partida
             self.mostrar_modal_ranking = true;
             self.exportar_resultados();
         }
     }
 
-    /// Seleccionar un reto específico de la lista
+    /// Seleccionar un reto específico de la lista (EL TIEMPO NO SE REINICIA, ES GLOBAL)
     pub fn seleccionar_reto(&mut self, idx: usize) {
         if idx < self.retos.len() {
             self.reto_actual_idx = idx;
             let reto = &self.retos[idx];
 
-            self.tiempo_restante_segundos = 300; // Reset a 5 minutos
-            self.tiempo_transcurrido_reto = 0;
+            // NO SE REINICIA EL TIEMPO: el tiempo es global de 5 minutos
             self.query_result = None;
             self.validation_result = None;
             self.mostrar_pistas = false;
@@ -207,7 +240,7 @@ impl SimuladorState {
             self.sql_buffer = format!("-- Reto {}: {}\nSELECT ", reto.id, reto.titulo);
             self.feedback_banner = Some((
                 false,
-                format!("Reto {} cargado. Tienes 5 minutos para resolverlo.", reto.id),
+                format!("Reto {} cargado (Nivel {} · {} · {} pts).", reto.id, reto.nivel, reto.dificultad_label(), reto.puntos()),
             ));
 
             // Expandir la tabla correspondiente en el esquema
@@ -217,51 +250,62 @@ impl SimuladorState {
         }
     }
 
-    /// Tic del temporizador (llamado cada 1 segundo)
+    /// Tic del temporizador global (llamado cada 1 segundo)
     pub fn tick_segundo(&mut self) {
-        if self.temporizador_activo && self.tiempo_restante_segundos > 0 {
-            self.tiempo_restante_segundos -= 1;
-            self.tiempo_transcurrido_reto += 1;
+        if self.temporizador_activo && self.tiempo_restante_global > 0 {
+            self.tiempo_restante_global -= 1;
             self.tiempo_total_segundos += 1;
 
-            if self.tiempo_restante_segundos == 0 {
-                // Tiempo agotado: registrar y pasar al siguiente
+            if self.tiempo_restante_global == 0 {
+                // TIEMPO GLOBAL DE 5 MINUTOS AGOTADO
+                self.temporizador_activo = false;
                 self.feedback_banner = Some((
                     false,
-                    "¡Tiempo agotado (5 min)! Pasando automáticamente al siguiente reto...".to_string(),
+                    "⏱ ¡TIEMPO GLOBAL DE 5 MINUTOS AGOTADO! El sprint ha concluido. Consulta tu puntuación y exporta tus resultados.".to_string(),
                 ));
-                self.siguiente_reto();
+                self.mostrar_modal_ranking = true;
+                self.exportar_resultados();
             }
         }
     }
 
-    /// Exportar automáticamente a CSV y JSON como exige la práctica
+    /// Exportar a CSV y JSON de forma 100% funcional y guardar las rutas
     pub fn exportar_resultados(&mut self) {
         let resumen = SesionResumen {
             sesion_id: self.sesion_id.clone(),
-            equipo_codigo: self.equipo_codigo.clone(),
+            participante: self.participante_nombre.clone(),
             fecha_inicio: self.fecha_inicio.clone(),
             fecha_fin: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
             retos_completados: self.retos_superados.len(),
             total_retos: self.retos.len(),
             total_intentos: self.historial_intentos.len(),
+            puntos_obtenidos: self.puntos_actuales(),
+            puntos_totales_posibles: self.puntos_maximos(),
             tiempo_total_segundos: self.tiempo_total_segundos,
+            tiempo_restante_global: self.tiempo_restante_global,
             intentos: self.historial_intentos.clone(),
         };
 
-        let json_filename = format!("resultados_{}_{}.json", self.equipo_codigo.replace(' ', "_"), self.sesion_id);
-        let csv_filename = format!("resultados_{}_{}.csv", self.equipo_codigo.replace(' ', "_"), self.sesion_id);
-
-        let _ = Exporter::export_json(&resumen, &json_filename);
-        let _ = Exporter::export_csv(&resumen, &csv_filename);
-
-        self.mensaje_sistema = Some(format!(
-            "Resultados exportados con éxito a '{}' y '{}'.",
-            json_filename, csv_filename
-        ));
+        match Exporter::export_all(&resumen) {
+            Ok((json_path, csv_path)) => {
+                let json_str = json_path.to_string_lossy().to_string();
+                let csv_str = csv_path.to_string_lossy().to_string();
+                self.ruta_export_json = Some(json_str);
+                self.ruta_export_csv = Some(csv_str);
+                self.mostrar_modal_exportacion = true;
+            }
+            Err(err) => {
+                self.feedback_banner = Some((false, format!("Error al exportar: {}", err)));
+            }
+        }
     }
 
-    /// Reiniciar partida limpia
+    /// Abrir la carpeta donde se han exportado los archivos
+    pub fn abrir_carpeta_exportacion(&self) {
+        Exporter::abrir_carpeta_en_explorador(Path::new("exports"));
+    }
+
+    /// Reiniciar partida limpia (con 5 minutos globales nuevos)
     pub fn reiniciar_partida(&mut self) {
         *self = Self::new();
     }

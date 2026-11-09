@@ -1,0 +1,268 @@
+{
+  "sesion_id": "9087A1A1",
+  "equipo_codigo": "Equipo 04",
+  "fecha_inicio": "2026-11-05 16:40:54",
+  "fecha_fin": "2026-11-05 16:42:04",
+  "retos_completados": 30,
+  "total_retos": 30,
+  "total_intentos": 32,
+  "tiempo_total_segundos": 69,
+  "intentos": [
+    {
+      "reto_id": "Q01",
+      "sql": "-- Reto Q01: Primeras filas\nSELECT",
+      "timestamp": "16:41:00",
+      "tiempo_segundos": 5,
+      "superado": false,
+      "mensaje_error": "Operación denegada: Solo se permiten consultas de lectura 'SELECT'."
+    },
+    {
+      "reto_id": "Q01",
+      "sql": "-- Reto Q01: Primeras filas\nSELECT",
+      "timestamp": "16:41:01",
+      "tiempo_segundos": 7,
+      "superado": false,
+      "mensaje_error": "Operación denegada: Solo se permiten consultas de lectura 'SELECT'."
+    },
+    {
+      "reto_id": "Q01",
+      "sql": "SELECT * FROM alumnos LIMIT 20;",
+      "timestamp": "16:41:04",
+      "tiempo_segundos": 10,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q02",
+      "sql": "SELECT id_alumno, nombre, apellido1, localidad, fecha_alta FROM alumnos;",
+      "timestamp": "16:41:10",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q03",
+      "sql": "SELECT nombre AS Nombre, apellido1 AS Primer_Apellido, fecha_alta AS Alta FROM alumnos;",
+      "timestamp": "16:41:13",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q04",
+      "sql": "SELECT DISTINCT localidad FROM alumnos;",
+      "timestamp": "16:41:15",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q05",
+      "sql": "SELECT apellido1 || ' ' || apellido2 || ' ' || nombre AS Alumno FROM alumnos;",
+      "timestamp": "16:41:17",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q06",
+      "sql": "SELECT DISTINCT turno, modalidad FROM grupos;",
+      "timestamp": "16:41:18",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q07",
+      "sql": "SELECT * FROM matriculas WHERE estado = 'Activa';",
+      "timestamp": "16:41:20",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q08",
+      "sql": "SELECT * FROM espacios WHERE capacidad > 30;",
+      "timestamp": "16:41:22",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q09",
+      "sql": "SELECT * FROM sesiones_clase WHERE fecha BETWEEN '2026-02-01' AND '2026-02-28';",
+      "timestamp": "16:41:24",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q10",
+      "sql": "SELECT * FROM grupos WHERE turno IN ('Mañana', 'Tarde', 'Noche');",
+      "timestamp": "16:41:28",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q11",
+      "sql": "SELECT * FROM actividades_evaluables WHERE titulo LIKE 'Proyecto%';",
+      "timestamp": "16:41:30",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q12",
+      "sql": "SELECT * FROM prestamos_equipos WHERE fecha_devolucion IS NULL;",
+      "timestamp": "16:41:34",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q13",
+      "sql": "SELECT * FROM grupos WHERE turno = 'Tarde' AND modalidad = 'Presencial';",
+      "timestamp": "16:41:37",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q14",
+      "sql": "SELECT * FROM asistencias WHERE estado <> 'Presente';",
+      "timestamp": "16:41:39",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q15",
+      "sql": "SELECT * FROM actividades_evaluables ORDER BY fecha DESC, titulo ASC;",
+      "timestamp": "16:41:40",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q16",
+      "sql": "SELECT * FROM calificaciones ORDER BY nota DESC LIMIT 10;",
+      "timestamp": "16:41:42",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q17",
+      "sql": "SELECT * FROM alumnos ORDER BY apellido1, nombre LIMIT 25;",
+      "timestamp": "16:41:44",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q18",
+      "sql": "SELECT id_sesion, duracion_minutos / 60.0 AS horas FROM sesiones_clase;",
+      "timestamp": "16:41:45",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q19",
+      "sql": "SELECT COUNT(*) FROM matriculas;",
+      "timestamp": "16:41:46",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q20",
+      "sql": "SELECT COUNT(*), COUNT(fecha_devolucion) FROM prestamos_equipos;",
+      "timestamp": "16:41:48",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q21",
+      "sql": "SELECT tipo, SUM(capacidad), AVG(capacidad) FROM espacios GROUP BY tipo;",
+      "timestamp": "16:41:49",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q22",
+      "sql": "SELECT id_grupo, MIN(fecha), MAX(fecha) FROM sesiones_clase GROUP BY id_grupo;",
+      "timestamp": "16:41:51",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q23",
+      "sql": "SELECT estado, COUNT(*) AS total FROM asistencias GROUP BY estado ORDER BY total DESC;",
+      "timestamp": "16:41:52",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q24",
+      "sql": "SELECT id_docente, id_grupo, COUNT(*) FROM sesiones_clase GROUP BY id_docente, id_grupo;",
+      "timestamp": "16:41:54",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q25",
+      "sql": "SELECT estado, COUNT(*) FROM matriculas GROUP BY estado HAVING COUNT(*) > 100;",
+      "timestamp": "16:41:55",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q26",
+      "sql": "SELECT id_docente, COUNT(*) FROM sesiones_clase GROUP BY id_docente HAVING COUNT(*) >= 15;",
+      "timestamp": "16:41:56",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q27",
+      "sql": "SELECT localidad, COUNT(*) FROM alumnos GROUP BY localidad HAVING COUNT(*) > 50;",
+      "timestamp": "16:41:58",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q28",
+      "sql": "SELECT tipo, AVG(capacidad) FROM espacios GROUP BY tipo HAVING AVG(capacidad) > 40;",
+      "timestamp": "16:41:59",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q29",
+      "sql": "SELECT estado, COUNT(*) AS total FROM asistencias GROUP BY estado HAVING COUNT(*) > 500 ORDER BY total DESC;",
+      "timestamp": "16:42:01",
+      "tiempo_segundos": 1,
+      "superado": true,
+      "mensaje_error": null
+    },
+    {
+      "reto_id": "Q30",
+      "sql": "SELECT id_grupo, COUNT(*) AS total FROM matriculas GROUP BY id_grupo ORDER BY total DESC LIMIT 5;",
+      "timestamp": "16:42:03",
+      "tiempo_segundos": 2,
+      "superado": true,
+      "mensaje_error": null
+    }
+  ]
+}

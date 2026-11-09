@@ -1,0 +1,7 @@
+SesionID,Equipo,RetoID,Timestamp,TiempoSegundos,Superado,Error,SQLEjecutado
+F6CB8FB6,Equipo 04,Q01,11:28:29,217,false,Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7,SELECT alumnos
+F6CB8FB6,Equipo 04,Q01,11:28:36,225,false,Error de sintaxis SQL: no such column: alumnos in SELECT alumnos LIMIT 20 at offset 7,SELECT alumnos LIMIT 20
+F6CB8FB6,Equipo 04,Q01,11:28:49,238,false,Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7,SELECT alumnos
+F6CB8FB6,Equipo 04,Q01,11:28:50,238,false,Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7,SELECT alumnos
+F6CB8FB6,Equipo 04,Q01,11:28:50,238,false,Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7,SELECT alumnos
+F6CB8FB6,Equipo 04,Q01,11:28:50,239,false,Error de sintaxis SQL: no such column: alumnos in SELECT alumnos at offset 7,SELECT alumnos

@@ -1,6 +1,6 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use crate::models::SesionResumen;
 
 pub struct Exporter;
@@ -24,11 +24,12 @@ impl Exporter {
         // Encabezados
         wtr.write_record(&[
             "SesionID",
-            "Equipo",
+            "Participante",
             "RetoID",
             "Timestamp",
-            "TiempoSegundos",
+            "TiempoEmpleadoSeg",
             "Superado",
+            "PuntosObtenidos",
             "Error",
             "SQLEjecutado",
         ])
@@ -37,11 +38,12 @@ impl Exporter {
         for intento in &sesion.intentos {
             wtr.write_record(&[
                 &sesion.sesion_id,
-                &sesion.equipo_codigo,
+                &sesion.participante,
                 &intento.reto_id,
                 &intento.timestamp,
                 &intento.tiempo_segundos.to_string(),
                 &intento.superado.to_string(),
+                &intento.puntos_obtenidos.to_string(),
                 intento.mensaje_error.as_deref().unwrap_or(""),
                 &intento.sql,
             ])
@@ -50,5 +52,47 @@ impl Exporter {
 
         wtr.flush().map_err(|e| format!("Error cerrando CSV: {}", e))?;
         Ok(())
+    }
+
+    /// Realizar exportación completa en carpeta 'exports/' y devolver rutas absolutas
+    pub fn export_all(sesion: &SesionResumen) -> Result<(PathBuf, PathBuf), String> {
+        let export_dir = Path::new("exports");
+        if !export_dir.exists() {
+            fs::create_dir_all(export_dir).map_err(|e| format!("No se pudo crear carpeta exports: {}", e))?;
+        }
+
+        let json_path = export_dir.join("resultados_sprint_sql.json");
+        let csv_path = export_dir.join("resultados_sprint_sql.csv");
+
+        Self::export_json(sesion, &json_path)?;
+        Self::export_csv(sesion, &csv_path)?;
+
+        let abs_json = fs::canonicalize(&json_path).unwrap_or(json_path);
+        let abs_csv = fs::canonicalize(&csv_path).unwrap_or(csv_path);
+
+        Ok((abs_json, abs_csv))
+    }
+
+    /// Abrir la carpeta de exportaciones en el explorador de Windows
+    pub fn abrir_carpeta_en_explorador(path: &Path) {
+        let target = if path.is_file() {
+            path.parent().unwrap_or(path)
+        } else {
+            path
+        };
+
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("explorer")
+                .arg(target)
+                .spawn();
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = std::process::Command::new("xdg-open")
+                .arg(target)
+                .spawn();
+        }
     }
 }
