@@ -121,10 +121,14 @@ impl Render for SimuladorApp {
                             .items_center()
                             .gap_3()
                             .child(
-                                img(Path::new("logotipo.png"))
-                                    .w(px(36.0))
-                                    .h(px(36.0))
-                                    .rounded_sm(),
+                                img(if Path::new("logotipo.png").exists() {
+                                    Path::new("logotipo.png")
+                                } else {
+                                    Path::new("assets/logotipo.png")
+                                })
+                                .w(px(46.0))
+                                .h(px(38.0))
+                                .rounded_sm(),
                             )
                             .child(
                                 div()
@@ -249,7 +253,7 @@ impl Render for SimuladorApp {
                             .bg(rgb(0x0f172a))
                             .border_r_1()
                             .border_color(rgb(0x1e293b))
-                            // Cabecera del banco de retos
+                            // Cabecera del banco de retos (sin puntos en lateral)
                             .child(
                                 div()
                                     .flex()
@@ -264,17 +268,21 @@ impl Render for SimuladorApp {
                                             .text_xs()
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(rgb(0x94a3b8))
-                                            .child(format!("BANCO DE RETOS ({}/30)", aciertos)),
+                                            .child("BANCO DE RETOS"),
                                     )
                                     .child(
                                         div()
                                             .text_xs()
                                             .font_weight(FontWeight::BOLD)
-                                            .text_color(rgb(0xfbbf24))
-                                            .child(format!("{} pts", puntos_actuales)),
+                                            .text_color(if aciertos == total_retos {
+                                                rgb(0x10b981)
+                                            } else {
+                                                rgb(0x38bdf8)
+                                            })
+                                            .child(format!("{}/{} superados", aciertos, total_retos)),
                                     ),
                             )
-                            // Lista de retos con categorías y colores de dificultad
+                            // Lista de retos organizada por categorías extensibles / contraíbles
                             .child(
                                 div()
                                     .id("retos_list")
@@ -282,69 +290,62 @@ impl Render for SimuladorApp {
                                     .flex_col()
                                     .overflow_y_scroll()
                                     .p_2()
-                                    .gap_1()
-                                    .children(self.state.retos.iter().enumerate().map(|(idx, r)| {
-                                        let is_selected = idx == actual_idx;
-                                        let is_solved = self.state.retos_superados.contains(&r.id);
+                                    .gap_2()
+                                    .children((1..=5u8).map(|lvl| {
+                                        let cat_retos: Vec<(usize, &models::Reto)> = self.state.retos
+                                            .iter()
+                                            .enumerate()
+                                            .filter(|(_, r)| r.nivel == lvl)
+                                            .collect();
 
-                                        let bg_color = if is_selected {
-                                            rgb(0x1e293b)
-                                        } else {
-                                            rgb(0x0f172a)
+                                        let cat_nombre = match lvl {
+                                            1 => "1. Selección y Proyección",
+                                            2 => "2. Filtrado con WHERE",
+                                            3 => "3. Ordenación y Límites",
+                                            4 => "4. Resumen y Agregación",
+                                            5 => "5. Agrupación (HAVING)",
+                                            _ => "Categoría",
                                         };
 
-                                        let icon = if is_solved {
-                                            "✓ "
-                                        } else if is_selected {
-                                            "▶ "
-                                        } else {
-                                            "• "
+                                        let cat_color = match lvl {
+                                            1 => 0x10b981,
+                                            2 => 0x06b6d4,
+                                            3 => 0x8b5cf6,
+                                            4 => 0xf59e0b,
+                                            5 => 0xef4444,
+                                            _ => 0x38bdf8,
                                         };
 
-                                        let icon_color = if is_solved {
-                                            rgb(0x10b981)
-                                        } else if is_selected {
-                                            rgb(0x38bdf8)
-                                        } else {
-                                            rgb(0x64748b)
-                                        };
+                                        let cat_resueltos = cat_retos
+                                            .iter()
+                                            .filter(|(_, r)| self.state.retos_superados.contains(&r.id))
+                                            .count();
 
-                                        let badge_col = rgb(r.color_hex());
-
-                                        // Renderizado de separador de categoría si es el primer ejercicio del bloque
-                                        let category_header = if idx == 0 || self.state.retos[idx - 1].nivel != r.nivel {
-                                            Some(
-                                                div()
-                                                    .pt_2()
-                                                    .pb_1()
-                                                    .px_2()
-                                                    .text_xs()
-                                                    .font_weight(FontWeight::BOLD)
-                                                    .text_color(badge_col)
-                                                    .child(format!("NIVEL {} · {} ({} pts)", r.nivel, r.categoria().to_uppercase(), r.puntos())),
-                                            )
-                                        } else {
-                                            None
-                                        };
+                                        let is_expanded = *self.state.categorias_expandidas.get(&lvl).unwrap_or(&true);
+                                        let chevron = if is_expanded { "▼" } else { "▶" };
+                                        let cat_completed = cat_resueltos == cat_retos.len() && !cat_retos.is_empty();
 
                                         div()
                                             .flex()
                                             .flex_col()
-                                            .children(category_header)
                                             .child(
+                                                // Cabecera clickeable de categoría (extender / contraer)
                                                 div()
-                                                    .id(ElementId::NamedInteger("reto_item".into(), idx as u64))
+                                                    .id(ElementId::NamedInteger("cat_header".into(), lvl as u64))
                                                     .flex()
                                                     .flex_row()
                                                     .items_center()
                                                     .justify_between()
-                                                    .p_2()
+                                                    .px_2()
+                                                    .py_1()
                                                     .rounded_md()
-                                                    .bg(bg_color)
+                                                    .bg(rgb(0x131d31))
+                                                    .border_1()
+                                                    .border_color(rgb(0x1e293b))
                                                     .cursor_pointer()
-                                                    .hover(|s| s.bg(rgb(0x334155)))
+                                                    .hover(|s| s.bg(rgb(0x1e293b)))
                                                     .on_click(cx.listener(move |this, _event, _window, cx| {
-                                                        this.state.seleccionar_reto(idx);
+                                                        this.state.toggle_categoria(lvl);
                                                         cx.notify();
                                                     }))
                                                     .child(
@@ -353,29 +354,126 @@ impl Render for SimuladorApp {
                                                             .flex_row()
                                                             .items_center()
                                                             .gap_2()
-                                                            .child(div().text_xs().text_color(icon_color).child(icon))
                                                             .child(
                                                                 div()
                                                                     .text_xs()
-                                                                    .font_weight(FontWeight::MEDIUM)
-                                                                    .child(format!("{}: {}", r.id, r.titulo)),
+                                                                    .text_color(rgb(0x94a3b8))
+                                                                    .child(chevron),
+                                                            )
+                                                            .child(
+                                                                div()
+                                                                    .text_xs()
+                                                                    .font_weight(FontWeight::BOLD)
+                                                                    .text_color(rgb(cat_color))
+                                                                    .child(cat_nombre),
                                                             ),
                                                     )
-                                                    // Badge de dificultad y puntos con color temático
                                                     .child(
                                                         div()
                                                             .px_2()
                                                             .py_0p5()
                                                             .rounded_sm()
-                                                            .bg(rgb(0x131d31))
-                                                            .border_1()
-                                                            .border_color(badge_col)
+                                                            .bg(if cat_completed { rgb(0x064e3b) } else { rgb(0x0f172a) })
                                                             .text_xs()
                                                             .font_weight(FontWeight::BOLD)
-                                                            .text_color(badge_col)
-                                                            .child(format!("+{} pts", r.puntos())),
+                                                            .text_color(if cat_completed { rgb(0x34d399) } else { rgb(0x94a3b8) })
+                                                            .child(if cat_completed {
+                                                                format!("✓ {}/{}", cat_resueltos, cat_retos.len())
+                                                            } else {
+                                                                format!("{}/{}", cat_resueltos, cat_retos.len())
+                                                            }),
                                                     ),
                                             )
+                                            .when(is_expanded, |this| {
+                                                this.child(
+                                                    div()
+                                                        .flex()
+                                                        .flex_col()
+                                                        .gap_1()
+                                                        .mt_1()
+                                                        .children(cat_retos.into_iter().map(|(idx, r)| {
+                                                            let is_selected = idx == actual_idx;
+                                                            let is_solved = self.state.retos_superados.contains(&r.id);
+
+                                                            let bg_color = if is_selected {
+                                                                rgb(0x1e293b)
+                                                            } else {
+                                                                rgb(0x0f172a)
+                                                            };
+
+                                                            let icon = if is_solved {
+                                                                "✓ "
+                                                            } else if is_selected {
+                                                                "▶ "
+                                                            } else {
+                                                                "• "
+                                                            };
+
+                                                            let icon_color = if is_solved {
+                                                                rgb(0x10b981)
+                                                            } else if is_selected {
+                                                                rgb(0x38bdf8)
+                                                            } else {
+                                                                rgb(0x64748b)
+                                                            };
+
+                                                            let text_color = if is_selected {
+                                                                rgb(0xf8fafc)
+                                                            } else if is_solved {
+                                                                rgb(0xcbd5e1)
+                                                            } else {
+                                                                rgb(0x94a3b8)
+                                                            };
+
+                                                            div()
+                                                                .id(ElementId::NamedInteger("reto_item".into(), idx as u64))
+                                                                .flex()
+                                                                .flex_row()
+                                                                .items_center()
+                                                                .justify_between()
+                                                                .p_2()
+                                                                .rounded_md()
+                                                                .bg(bg_color)
+                                                                .border_l_2()
+                                                                .border_color(if is_selected {
+                                                                    rgb(cat_color)
+                                                                } else {
+                                                                    rgb(0x0f172a)
+                                                                })
+                                                                .cursor_pointer()
+                                                                .hover(|s| s.bg(rgb(0x273549)))
+                                                                .on_click(cx.listener(move |this, _event, _window, cx| {
+                                                                    this.state.seleccionar_reto(idx);
+                                                                    cx.notify();
+                                                                }))
+                                                                .child(
+                                                                    div()
+                                                                        .flex()
+                                                                        .flex_row()
+                                                                        .items_center()
+                                                                        .gap_2()
+                                                                        .child(
+                                                                            div()
+                                                                                .text_xs()
+                                                                                .font_weight(FontWeight::BOLD)
+                                                                                .text_color(icon_color)
+                                                                                .child(icon),
+                                                                        )
+                                                                        .child(
+                                                                            div()
+                                                                                .text_xs()
+                                                                                .font_weight(if is_selected {
+                                                                                    FontWeight::BOLD
+                                                                                } else {
+                                                                                    FontWeight::NORMAL
+                                                                                })
+                                                                                .text_color(text_color)
+                                                                                .child(format!("{}: {}", r.id, r.titulo)),
+                                                                        ),
+                                                                )
+                                                        })),
+                                                )
+                                            })
                                     })),
                             ),
                     )

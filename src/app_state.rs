@@ -34,6 +34,9 @@ pub struct SimuladorState {
     pub schema: Vec<SchemaTable>,
     pub tablas_expandidas: HashMap<String, bool>,
 
+    // Categorías de retos expandidas en la barra lateral
+    pub categorias_expandidas: HashMap<u8, bool>,
+
     // Progreso y métricas
     pub retos_superados: Vec<String>, // IDs de retos acertados
     pub intentos_por_reto: HashMap<String, usize>,
@@ -70,6 +73,12 @@ impl SimuladorState {
         // Expandir por defecto la tabla del primer reto
         tablas_expandidas.insert("alumnos".to_string(), true);
 
+        // Expandir todas las categorías de retos por defecto
+        let mut categorias_expandidas = HashMap::new();
+        for lvl in 1..=5 {
+            categorias_expandidas.insert(lvl, true);
+        }
+
         let initial_sql = if !retos.is_empty() {
             format!("-- Reto {}: {}\nSELECT ", retos[0].id, retos[0].titulo)
         } else {
@@ -99,6 +108,7 @@ impl SimuladorState {
 
             schema,
             tablas_expandidas,
+            categorias_expandidas,
 
             retos_superados: Vec::new(),
             intentos_por_reto: HashMap::new(),
@@ -247,7 +257,16 @@ impl SimuladorState {
             if let Some(expand) = self.tablas_expandidas.get_mut(&reto.tabla) {
                 *expand = true;
             }
+
+            // Asegurar que la categoría del reto actual esté expandida
+            self.categorias_expandidas.insert(reto.nivel, true);
         }
+    }
+
+    /// Alternar entre expandir y contraer una categoría en la barra lateral
+    pub fn toggle_categoria(&mut self, nivel: u8) {
+        let current = *self.categorias_expandidas.get(&nivel).unwrap_or(&true);
+        self.categorias_expandidas.insert(nivel, !current);
     }
 
     /// Tic del temporizador global (llamado cada 1 segundo)
