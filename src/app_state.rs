@@ -43,7 +43,10 @@ pub struct SimuladorState {
     pub historial_intentos: Vec<IntentoRegistro>,
     pub tiempo_total_segundos: u64,
 
-    // Modales y vistas
+    // Modales y vistas / ciclo de vida de la sesión
+    pub sesion_iniciada: bool,
+    pub sesion_finalizada: bool,
+    pub editando_nombre: bool,
     pub mostrar_modal_ranking: bool,
     pub mostrar_modal_exportacion: bool,
     pub mostrar_pistas: bool,
@@ -93,9 +96,9 @@ impl SimuladorState {
             sesion_id: Uuid::new_v4().to_string()[..8].to_uppercase(),
             fecha_inicio: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
 
-            // TIEMPO GLOBAL DE 5 MINUTOS (300 SEGUNDOS) PARA TODO EL SIMULADOR
+            // TIEMPO GLOBAL DE 5 MINUTOS (300 SEGUNDOS) - empieza en pausa hasta pulsar "Comenzar"
             tiempo_restante_global: 300,
-            temporizador_activo: true,
+            temporizador_activo: false,
 
             sql_buffer: initial_sql,
 
@@ -115,6 +118,9 @@ impl SimuladorState {
             historial_intentos: Vec::new(),
             tiempo_total_segundos: 0,
 
+            sesion_iniciada: false,
+            sesion_finalizada: false,
+            editando_nombre: false,
             mostrar_modal_ranking: false,
             mostrar_modal_exportacion: false,
             mostrar_pistas: false,
@@ -125,6 +131,41 @@ impl SimuladorState {
 
     pub fn reto_actual(&self) -> Option<&Reto> {
         self.retos.get(self.reto_actual_idx)
+    }
+
+    /// Iniciar la sesión desde la pantalla de bienvenida
+    pub fn iniciar_sesion(&mut self) {
+        self.sesion_iniciada = true;
+        self.sesion_finalizada = false;
+        self.temporizador_activo = true;
+        self.editando_nombre = false;
+        self.fecha_inicio = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    }
+
+    /// Finalizar la sesión (por tiempo agotado o por decisión del alumno) y bloquear nuevas respuestas
+    pub fn finalizar_sesion(&mut self, por_tiempo: bool) {
+        self.sesion_finalizada = true;
+        self.temporizador_activo = false;
+        self.mostrar_modal_ranking = false;
+        self.feedback_banner = Some((
+            false,
+            if por_tiempo {
+                "⏱ ¡Tiempo global de 5 minutos agotado! Nuevas respuestas bloqueadas."
+            } else {
+                "🏁 Sesión finalizada correctamente. Nuevas respuestas bloqueadas."
+            }
+            .to_string(),
+        ));
+    }
+
+    /// Número total de intentos erróneos acumulados en la sesión
+    pub fn errores_cometidos(&self) -> usize {
+        self.historial_intentos.iter().filter(|i| !i.superado).count()
+    }
+
+    /// Número de retos no superados (incorrectos o sin completar)
+    pub fn retos_no_superados(&self) -> usize {
+        self.retos.len().saturating_sub(self.retos_superados.len())
     }
 
     /// Calcula la puntuación total acumulada sumando los puntos de cada reto superado
@@ -143,16 +184,13 @@ impl SimuladorState {
 
     /// Ejecutar y validar la consulta del usuario
     pub fn ejecutar_y_comprobar(&mut self) {
-        if self.retos.is_empty() {
+        if self.retos.is_empty() || !self.sesion_iniciada {
             return;
         }
 
-        // Si el tiempo global se agotó, impedir ejecuciones adicionales
-        if self.tiempo_restante_global == 0 {
-            self.feedback_banner = Some((
-                false,
-                "⏱ El tiempo global de 5 minutos ha finalizado. Puedes reiniciar la partida para un nuevo intento.".to_string(),
-            ));
+        // Bloquear nuevas respuestas si la sesión ya finalizó o el tiempo se agotó
+        if self.sesion_finalizada || self.tiempo_restante_global == 0 {
+            self.finalizar_sesion(self.tiempo_restante_global == 0);
             return;
         }
 
@@ -171,9 +209,10 @@ impl SimuladorState {
             }
             Err(err) => {
                 self.query_result = None;
+                self.mostrar_pistas = true;
                 self.feedback_banner = Some((false, format!("Error SQL: {}", err)));
 
-                // Registrar intento fallido por error de sintaxis
+                // Registrar intento fallido por error de sintaxis o seguridad (sin otorgar puntos)
                 *self.intentos_por_reto.entry(reto.id.clone()).or_insert(0) += 1;
                 self.historial_intentos.push(IntentoRegistro {
                     reto_id: reto.id.clone(),
@@ -188,7 +227,7 @@ impl SimuladorState {
             }
         }
 
-        // 2. Validación semántica profunda
+        // 2. Validación semántica profunda (columnas, filas, tipos y valores)
         let val_res = Validator::validate(&self.db, &reto, &sql);
         let es_superado = val_res.is_valid;
         let puntos_ganados = if es_superado { reto.puntos() } else { 0 };
@@ -219,6 +258,8 @@ impl SimuladorState {
                 ),
             ));
         } else {
+            // Mostrar pista pedagógica automáticamente cuando la consulta es incorrecta
+            self.mostrar_pistas = true;
             self.feedback_banner = Some((false, format!("{}: {}", val_res.title, val_res.message)));
         }
 
@@ -227,17 +268,22 @@ impl SimuladorState {
 
     /// Avanzar al siguiente reto
     pub fn siguiente_reto(&mut self) {
+        if self.sesion_finalizada {
+            return;
+        }
         if self.reto_actual_idx + 1 < self.retos.len() {
             self.seleccionar_reto(self.reto_actual_idx + 1);
         } else {
-            // Fin de la partida
-            self.mostrar_modal_ranking = true;
-            self.exportar_resultados();
+            // Fin de todos los retos: mostrar informe final y bloquear nuevas respuestas
+            self.finalizar_sesion(false);
         }
     }
 
     /// Seleccionar un reto específico de la lista (EL TIEMPO NO SE REINICIA, ES GLOBAL)
     pub fn seleccionar_reto(&mut self, idx: usize) {
+        if self.sesion_finalizada {
+            return;
+        }
         if idx < self.retos.len() {
             self.reto_actual_idx = idx;
             let reto = &self.retos[idx];
@@ -271,19 +317,17 @@ impl SimuladorState {
 
     /// Tic del temporizador global (llamado cada 1 segundo)
     pub fn tick_segundo(&mut self) {
-        if self.temporizador_activo && self.tiempo_restante_global > 0 {
+        if self.sesion_iniciada
+            && !self.sesion_finalizada
+            && self.temporizador_activo
+            && self.tiempo_restante_global > 0
+        {
             self.tiempo_restante_global -= 1;
             self.tiempo_total_segundos += 1;
 
             if self.tiempo_restante_global == 0 {
-                // TIEMPO GLOBAL DE 5 MINUTOS AGOTADO
-                self.temporizador_activo = false;
-                self.feedback_banner = Some((
-                    false,
-                    "⏱ ¡TIEMPO GLOBAL DE 5 MINUTOS AGOTADO! El sprint ha concluido. Consulta tu puntuación y exporta tus resultados.".to_string(),
-                ));
-                self.mostrar_modal_ranking = true;
-                self.exportar_resultados();
+                // TIEMPO GLOBAL DE 5 MINUTOS AGOTADO: bloquear respuestas y mostrar informe final
+                self.finalizar_sesion(true);
             }
         }
     }
@@ -296,8 +340,10 @@ impl SimuladorState {
             fecha_inicio: self.fecha_inicio.clone(),
             fecha_fin: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
             retos_completados: self.retos_superados.len(),
+            retos_no_superados: self.retos_no_superados(),
             total_retos: self.retos.len(),
             total_intentos: self.historial_intentos.len(),
+            errores_cometidos: self.errores_cometidos(),
             puntos_obtenidos: self.puntos_actuales(),
             puntos_totales_posibles: self.puntos_maximos(),
             tiempo_total_segundos: self.tiempo_total_segundos,
@@ -324,8 +370,10 @@ impl SimuladorState {
         Exporter::abrir_carpeta_en_explorador(Path::new("exports"));
     }
 
-    /// Reiniciar partida limpia (con 5 minutos globales nuevos)
+    /// Reiniciar partida limpia (conservando el nombre del alumno y volviendo a pantalla de inicio)
     pub fn reiniciar_partida(&mut self) {
+        let nombre_actual = self.participante_nombre.clone();
         *self = Self::new();
+        self.participante_nombre = nombre_actual;
     }
 }

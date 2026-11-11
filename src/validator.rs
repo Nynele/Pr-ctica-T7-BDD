@@ -1,24 +1,24 @@
 use std::collections::HashMap;
 use crate::db::DbManager;
-use crate::models::{Reto, ValidationResult};
+use crate::models::{CellValue, Reto, ValidationResult};
 
-/// Canonical value representation for comparison
+/// Typed canonical value representation for accurate comparison of types & logical values
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum NormalizedValue {
     Null,
+    Number(i128), // Scaled by 100 to compare INTEGER and REAL logically while keeping type strictness vs Text
     Text(String),
+    Blob(usize),
 }
 
 impl NormalizedValue {
-    fn from_str(s: &str) -> Self {
-        let trimmed = s.trim();
-        if trimmed.eq_ignore_ascii_case("null") {
-            NormalizedValue::Null
-        } else if let Ok(f) = trimmed.parse::<f64>() {
-            // Round floats to 2 decimal places to allow tolerance for AVG, calculations
-            NormalizedValue::Text(format!("{:.2}", f))
-        } else {
-            NormalizedValue::Text(trimmed.to_string())
+    fn from_cell(cell: &CellValue) -> Self {
+        match cell {
+            CellValue::Null => NormalizedValue::Null,
+            CellValue::Integer(n) => NormalizedValue::Number((*n as i128) * 100),
+            CellValue::Real(f) => NormalizedValue::Number((*f * 100.0).round() as i128),
+            CellValue::Text(s) => NormalizedValue::Text(s.trim().to_string()),
+            CellValue::Blob(len) => NormalizedValue::Blob(*len),
         }
     }
 }
@@ -26,7 +26,7 @@ impl NormalizedValue {
 pub struct Validator;
 
 impl Validator {
-    /// Validates user SQL against reference SQL following PDF rules (Page 10)
+    /// Validates user SQL against reference SQL checking columns, rows, types, and values.
     pub fn validate(db: &DbManager, reto: &Reto, user_sql: &str) -> ValidationResult {
         // 1. Ejecutar consulta de referencia (sin límite de visualización para comparar la totalidad de los datos)
         let ref_result = match db.execute_query(&reto.consulta_referencia, usize::MAX) {
@@ -85,16 +85,21 @@ impl Validator {
             };
         }
 
-        // 5. Comparar datos fila por fila según si requiere orden o no
+        // 5. Comparar tipos y valores fila por fila según si requiere orden o no
         if reto.requiere_orden {
             // Comparación secuencial estricta
-            for (idx, (u_row, r_row)) in user_result.rows.iter().zip(ref_result.rows.iter()).enumerate() {
+            for (idx, (u_row, r_row)) in user_result
+                .typed_rows
+                .iter()
+                .zip(ref_result.typed_rows.iter())
+                .enumerate()
+            {
                 if !Self::rows_equal(u_row, r_row) {
                     return ValidationResult {
                         is_valid: false,
-                        title: "El orden o los datos de las filas difieren".to_string(),
+                        title: "El orden, los tipos o los datos difieren".to_string(),
                         message: format!(
-                            "La fila {} no coincide con el orden esperado. Revisa la cláusula ORDER BY.",
+                            "La fila {} no coincide con el resultado esperado. Revisa la cláusula ORDER BY o las columnas seleccionadas.",
                             idx + 1
                         ),
                         rows_matched: idx,
@@ -103,24 +108,26 @@ impl Validator {
                 }
             }
         } else {
-            // Comparación Multiset (bolsa de filas sin orden, respetando duplicados)
+            // Comparación Multiset (bolsa de filas sin orden, respetando duplicados y tipos)
             let mut expected_map: HashMap<Vec<NormalizedValue>, usize> = HashMap::new();
-            for r_row in &ref_result.rows {
-                let norm: Vec<NormalizedValue> = r_row.iter().map(|v| NormalizedValue::from_str(v)).collect();
+            for r_row in &ref_result.typed_rows {
+                let norm: Vec<NormalizedValue> =
+                    r_row.iter().map(NormalizedValue::from_cell).collect();
                 *expected_map.entry(norm).or_insert(0) += 1;
             }
 
             let mut user_map: HashMap<Vec<NormalizedValue>, usize> = HashMap::new();
-            for u_row in &user_result.rows {
-                let norm: Vec<NormalizedValue> = u_row.iter().map(|v| NormalizedValue::from_str(v)).collect();
+            for u_row in &user_result.typed_rows {
+                let norm: Vec<NormalizedValue> =
+                    u_row.iter().map(NormalizedValue::from_cell).collect();
                 *user_map.entry(norm).or_insert(0) += 1;
             }
 
             if expected_map != user_map {
                 return ValidationResult {
                     is_valid: false,
-                    title: "Los datos devueltos no coinciden".to_string(),
-                    message: "Las filas devueltas no concuerdan con el conjunto de datos esperado para este reto.".to_string(),
+                    title: "Los datos o tipos devueltos no coinciden".to_string(),
+                    message: "Las filas devueltas no concuerdan con el conjunto de datos y tipos esperado para este reto.".to_string(),
                     rows_matched: 0,
                     expected_rows: ref_result.total_rows,
                 };
@@ -140,17 +147,12 @@ impl Validator {
         }
     }
 
-    fn rows_equal(r1: &[String], r2: &[String]) -> bool {
+    fn rows_equal(r1: &[CellValue], r2: &[CellValue]) -> bool {
         if r1.len() != r2.len() {
             return false;
         }
-        for (v1, v2) in r1.iter().zip(r2.iter()) {
-            let n1 = NormalizedValue::from_str(v1);
-            let n2 = NormalizedValue::from_str(v2);
-            if n1 != n2 {
-                return false;
-            }
-        }
-        true
+        r1.iter()
+            .zip(r2.iter())
+            .all(|(c1, c2)| NormalizedValue::from_cell(c1) == NormalizedValue::from_cell(c2))
     }
 }

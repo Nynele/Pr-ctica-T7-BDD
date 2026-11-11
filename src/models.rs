@@ -63,10 +63,21 @@ impl Reto {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CellValue {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(String),
+    Blob(usize),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
+    #[serde(skip)]
+    pub typed_rows: Vec<Vec<CellValue>>,
     pub total_rows: usize,
     pub execution_time_ms: f64,
     pub is_truncated: bool,
@@ -99,8 +110,10 @@ pub struct SesionResumen {
     pub fecha_inicio: String,
     pub fecha_fin: Option<String>,
     pub retos_completados: usize,
+    pub retos_no_superados: usize,
     pub total_retos: usize,
     pub total_intentos: usize,
+    pub errores_cometidos: usize,
     pub puntos_obtenidos: u32,
     pub puntos_totales_posibles: u32,
     pub tiempo_total_segundos: u64,

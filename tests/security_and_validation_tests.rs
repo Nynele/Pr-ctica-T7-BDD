@@ -1,3 +1,4 @@
+use simulador_sql_davante::app_state::SimuladorState;
 use simulador_sql_davante::db::DbManager;
 use simulador_sql_davante::models::Reto;
 use simulador_sql_davante::validator::Validator;
@@ -35,6 +36,30 @@ fn test_security_authorizer_blocks_dml_and_ddl() {
     // Probar sentencias encadenadas con ';'
     let res_chained = db.execute_query("SELECT * FROM alumnos; DROP TABLE alumnos;", 10);
     assert!(res_chained.is_err(), "Sentencias encadenadas deben ser bloqueadas");
+
+    let res_chained_select = db.execute_query("SELECT 1; SELECT 2;", 10);
+    assert!(res_chained_select.is_err(), "Múltiples SELECT separados por ';' deben bloquearse");
+
+    // Probar PRAGMA y ATTACH
+    let res_pragma = db.execute_query("PRAGMA table_info(alumnos);", 10);
+    assert!(res_pragma.is_err(), "PRAGMA debe ser bloqueado");
+
+    let res_attach = db.execute_query("ATTACH DATABASE 'otra.db' AS otra;", 10);
+    assert!(res_attach.is_err(), "ATTACH DATABASE debe ser bloqueado");
+
+    // Probar entradas vacías y solo comentarios
+    assert!(db.execute_query("", 10).is_err());
+    assert!(db.execute_query("   \n  -- solo comentario ", 10).is_err());
+
+    // Probar que una consulta con comentario inicial -- Reto ... funciona correctamente
+    let res_commented = db.execute_query("-- Reto Q01: Comentario\nSELECT * FROM alumnos LIMIT 5;", 10);
+    assert!(res_commented.is_ok(), "Una consulta SELECT precedida por comentario '--' debe funcionar");
+    assert_eq!(res_commented.unwrap().rows.len(), 5);
+
+    // Probar límite de visualización de 50 filas mientras total_rows refleja el total real
+    let res_50 = db.execute_query("SELECT * FROM alumnos;", 50).unwrap();
+    assert_eq!(res_50.rows.len(), 50, "La visualización debe limitarse a 50 filas");
+    assert!(res_50.total_rows > 50 && res_50.is_truncated, "total_rows e is_truncated deben reflejar la truncación");
 }
 
 #[test]
@@ -75,4 +100,76 @@ fn test_validation_detects_wrong_query() {
     // Consulta con número de filas erróneas
     let wrong_rows = Validator::validate(&db, &reto, "SELECT id_alumno, nombre FROM alumnos LIMIT 2;");
     assert!(!wrong_rows.is_valid, "Debe detectar discrepancia en filas");
+
+    // Consulta con orden de columnas invertido
+    let wrong_col_order = Validator::validate(&db, &reto, "SELECT nombre, id_alumno FROM alumnos LIMIT 5;");
+    assert!(!wrong_col_order.is_valid, "Debe detectar orden de columnas erróneo");
+
+    // Consulta con tipo distinto (texto en lugar de entero)
+    let wrong_type = Validator::validate(&db, &reto, "SELECT CAST(id_alumno AS TEXT), nombre FROM alumnos LIMIT 5;");
+    assert!(!wrong_type.is_valid, "Debe distinguir Text de Integer en la evaluación de tipos");
+
+    // Consulta equivalente con comentario inicial y mayúsculas/minúsculas mixtas
+    let equiv_ok = Validator::validate(&db, &reto, "-- Comentario\nselect id_alumno, nombre from alumnos limit 5");
+    assert!(equiv_ok.is_valid, "Debe validar consulta equivalente con comentario inicial y sin ';'");
+}
+
+#[test]
+fn test_semicolon_inside_literal_allowed() {
+    let db = DbManager::new("assets/davante_asir.db");
+    let res = db.execute_query("SELECT * FROM actividades_evaluables WHERE titulo LIKE '%;%';", 10);
+    assert!(res.is_ok(), "Un ';' dentro de comillas simples no es una sentencia encadenada");
+}
+
+#[test]
+fn test_session_lifecycle_timer_and_blocking() {
+    let mut state = SimuladorState::new();
+    assert!(!state.sesion_iniciada, "Debe empezar en la pantalla de inicio");
+    assert!(!state.temporizador_activo, "El cronómetro no debe correr antes de comenzar");
+    assert_eq!(state.tiempo_restante_global, 300);
+    assert_eq!(state.puntos_maximos(), 900);
+
+    // Tick antes de comenzar no descuenta tiempo
+    state.tick_segundo();
+    assert_eq!(state.tiempo_restante_global, 300);
+
+    // Intentar ejecutar antes de iniciar está bloqueado
+    state.sql_buffer = "SELECT * FROM alumnos LIMIT 20;".to_string();
+    state.ejecutar_y_comprobar();
+    assert_eq!(state.historial_intentos.len(), 0);
+
+    // Iniciar sesión
+    state.iniciar_sesion();
+    assert!(state.sesion_iniciada);
+    assert!(state.temporizador_activo);
+
+    state.tick_segundo();
+    assert_eq!(state.tiempo_restante_global, 299);
+    assert_eq!(state.tiempo_total_segundos, 1);
+
+    // Respuesta incorrecta debe activar pistas automáticamente y sumar error
+    state.sql_buffer = "SELECT id_alumno FROM alumnos LIMIT 5;".to_string();
+    state.ejecutar_y_comprobar();
+    assert_eq!(state.errores_cometidos(), 1);
+    assert_eq!(state.puntos_actuales(), 0);
+    assert!(state.mostrar_pistas, "Las pistas deben mostrarse automáticamente al fallar");
+
+    // Respuesta correcta suma puntos del nivel 1 (10 pts)
+    state.sql_buffer = "-- Reto Q01\nSELECT * FROM alumnos LIMIT 20;".to_string();
+    state.ejecutar_y_comprobar();
+    assert_eq!(state.retos_superados.len(), 1);
+    assert_eq!(state.puntos_actuales(), 10);
+    assert_eq!(state.retos_no_superados(), 29);
+
+    // Finalizar sesión bloquea nuevas respuestas y detiene el temporizador
+    state.finalizar_sesion(false);
+    assert!(state.sesion_finalizada);
+    assert!(!state.temporizador_activo);
+
+    let intentos_antes = state.historial_intentos.len();
+    state.seleccionar_reto(1);
+    state.sql_buffer = "SELECT id_alumno, nombre, apellido1, localidad, fecha_alta FROM alumnos;".to_string();
+    state.ejecutar_y_comprobar();
+    assert_eq!(state.historial_intentos.len(), intentos_antes, "No debe permitir nuevos envíos tras finalizar");
+    assert_eq!(state.puntos_actuales(), 10, "No debe otorgar puntos tras finalizar");
 }

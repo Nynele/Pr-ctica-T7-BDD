@@ -43,15 +43,73 @@ impl SimuladorApp {
 
     fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let key = &event.keystroke.key;
+        let mods = &event.keystroke.modifiers;
+
+        // Pantalla de inicio: permitir editar el nombre del participante si está activo
+        if !self.state.sesion_iniciada {
+            if self.state.editando_nombre {
+                if key == "backspace" {
+                    self.state.participante_nombre.pop();
+                    cx.notify();
+                } else if key == "enter" {
+                    if self.state.participante_nombre.trim().is_empty() {
+                        self.state.participante_nombre = "Alumno demo".to_string();
+                    }
+                    self.state.editando_nombre = false;
+                    cx.notify();
+                } else if key == "space" {
+                    self.state.participante_nombre.push(' ');
+                    cx.notify();
+                } else if let Some(ref ch) = event.keystroke.key_char {
+                    if !(mods.control && !mods.alt) && !mods.platform {
+                        self.state.participante_nombre.push_str(ch);
+                        cx.notify();
+                    }
+                }
+            }
+            return;
+        }
+
+        // Si la sesión ya finalizó (por tiempo o usuario), bloquear edición/envío SQL
+        if self.state.sesion_finalizada {
+            return;
+        }
+
+        // Atajos con Control (sin AltGr)
+        if mods.control && !mods.alt && !mods.platform {
+            if key == "enter" {
+                self.state.ejecutar_y_comprobar();
+                cx.notify();
+                return;
+            } else if key.eq_ignore_ascii_case("v") {
+                if let Some(item) = cx.read_from_clipboard() {
+                    if let Some(text) = item.text() {
+                        self.state.sql_buffer.push_str(&text);
+                        cx.notify();
+                    }
+                }
+                return;
+            } else if key.eq_ignore_ascii_case("c") {
+                cx.write_to_clipboard(ClipboardItem::new_string(self.state.sql_buffer.clone()));
+                return;
+            } else if key == "backspace" {
+                // Borrar última palabra o espacio
+                while self.state.sql_buffer.ends_with(char::is_whitespace) {
+                    self.state.sql_buffer.pop();
+                }
+                while self.state.sql_buffer.chars().last().is_some_and(|c| !c.is_whitespace()) {
+                    self.state.sql_buffer.pop();
+                }
+                cx.notify();
+                return;
+            }
+        }
+
         if key == "backspace" {
             self.state.sql_buffer.pop();
             cx.notify();
         } else if key == "enter" {
-            if event.keystroke.modifiers.control {
-                self.state.ejecutar_y_comprobar();
-            } else {
-                self.state.sql_buffer.push('\n');
-            }
+            self.state.sql_buffer.push('\n');
             cx.notify();
         } else if key == "space" {
             self.state.sql_buffer.push(' ');
@@ -59,20 +117,754 @@ impl SimuladorApp {
         } else if key == "tab" {
             self.state.sql_buffer.push_str("    ");
             cx.notify();
-        } else if key.len() == 1 {
+        } else if let Some(ref ch) = event.keystroke.key_char {
+            // key_char resuelve mayúsculas, acentos, símbolos (*, (, ), =, <, >) y AltGr (|) en teclado ES
+            if !(mods.control && !mods.alt) && !mods.platform && !ch.is_empty() {
+                self.state.sql_buffer.push_str(ch);
+                cx.notify();
+            }
+        } else if !mods.control && !mods.alt && !mods.platform && key.len() == 1 {
             self.state.sql_buffer.push_str(key);
             cx.notify();
         }
+    }
+
+    fn logo_path() -> &'static Path {
+        if Path::new("logotipo.png").exists() {
+            Path::new("logotipo.png")
+        } else {
+            Path::new("assets/logotipo.png")
+        }
+    }
+
+    /// Tabla reutilizable con desglose de los 5 niveles (colores, superados, puntos y estado)
+    fn render_level_breakdown_table(&self) -> Div {
+        let niveles: [(u8, &str, u32, u32); 5] = [
+            (1, "Selección y Proyección", 10, 0x10b981),
+            (2, "Filtrado con WHERE", 20, 0x06b6d4),
+            (3, "Ordenación y Límites", 30, 0x8b5cf6),
+            (4, "Resumen y Agregación", 40, 0xf59e0b),
+            (5, "Agrupación Avanzada (HAVING)", 50, 0xef4444),
+        ];
+
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .rounded_lg()
+            .overflow_hidden()
+            .border_1()
+            .border_color(rgb(0x1e293b))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .p_2()
+                    .bg(rgb(0x1e293b))
+                    .text_xs()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(rgb(0x94a3b8))
+                    .child(div().w(px(75.0)).child("Nivel"))
+                    .child(div().flex_1().child("Categoría"))
+                    .child(div().w(px(90.0)).child("Superados"))
+                    .child(div().w(px(80.0)).child("Puntos"))
+                    .child(div().w(px(95.0)).child("Estado")),
+            )
+            .children(niveles.into_iter().enumerate().map(|(i, (lvl, nombre, pts_por_reto, color))| {
+                let total_lvl = self.state.retos.iter().filter(|r| r.nivel == lvl).count();
+                let ok_lvl = self
+                    .state
+                    .retos
+                    .iter()
+                    .filter(|r| r.nivel == lvl && self.state.retos_superados.contains(&r.id))
+                    .count();
+                let pts_lvl = ok_lvl as u32 * pts_por_reto;
+                let row_bg = if i % 2 == 0 { rgb(0x131d31) } else { rgb(0x0f172a) };
+
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .p_2()
+                    .bg(row_bg)
+                    .text_xs()
+                    .text_color(rgb(color))
+                    .child(div().w(px(75.0)).font_weight(FontWeight::BOLD).child(format!("Nivel {}", lvl)))
+                    .child(div().flex_1().text_color(rgb(0xe2e8f0)).child(nombre))
+                    .child(div().w(px(90.0)).child(format!("{}/{}", ok_lvl, total_lvl)))
+                    .child(div().w(px(80.0)).font_weight(FontWeight::BOLD).child(format!("{} pts", pts_lvl)))
+                    .child(div().w(px(95.0)).child(if total_lvl > 0 && ok_lvl == total_lvl { "Completado" } else { "En curso" }))
+            }))
+    }
+
+    /// Modal de confirmación de exportación funcional (reutilizado en sesión y pantalla final)
+    fn render_export_modal(&self, cx: &mut Context<Self>) -> Div {
+        let json_path = self
+            .state
+            .ruta_export_json
+            .clone()
+            .unwrap_or_else(|| "exports/resultados_sprint_sql.json".to_string());
+        let csv_path = self
+            .state
+            .ruta_export_csv
+            .clone()
+            .unwrap_or_else(|| "exports/resultados_sprint_sql.csv".to_string());
+        let aciertos = self.state.retos_superados.len();
+        let total_retos = self.state.retos.len();
+        let errores = self.state.errores_cometidos();
+        let puntos_actuales = self.state.puntos_actuales();
+        let puntos_maximos = self.state.puntos_maximos();
+
+        div()
+            .absolute()
+            .size_full()
+            .bg(rgba(0x000000d0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .w(px(580.0))
+                    .p_6()
+                    .rounded_xl()
+                    .bg(rgb(0x0f172a))
+                    .border_1()
+                    .border_color(rgb(0x059669))
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(div().text_lg().child("✅"))
+                                    .child(
+                                        div()
+                                            .text_base()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgb(0x10b981))
+                                            .child("¡Resultados Exportados con Éxito!"),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("btn_cerrar_modal_export")
+                                    .cursor_pointer()
+                                    .text_sm()
+                                    .text_color(rgb(0x94a3b8))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.state.mostrar_modal_exportacion = false;
+                                        cx.notify();
+                                    }))
+                                    .child("✕"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .p_3()
+                            .rounded_md()
+                            .bg(rgb(0x131d31))
+                            .border_1()
+                            .border_color(rgb(0x1e293b))
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(0x38bdf8))
+                                    .child(format!(
+                                        "Sesión: #{} · Participante: {}",
+                                        self.state.sesion_id, self.state.participante_nombre
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xcbd5e1))
+                                    .child(format!(
+                                        "• Puntuación conseguida: {} / {} pts",
+                                        puntos_actuales, puntos_maximos
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xcbd5e1))
+                                    .child(format!(
+                                        "• Retos superados: {} de {} (errores registrados: {})",
+                                        aciertos, total_retos, errores
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xcbd5e1))
+                                    .child(format!(
+                                        "• Tiempo empleado: {:02}:{:02} (restante: {:02}:{:02})",
+                                        self.state.tiempo_total_segundos / 60,
+                                        self.state.tiempo_total_segundos % 60,
+                                        self.state.tiempo_restante_global / 60,
+                                        self.state.tiempo_restante_global % 60
+                                    )),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(0x94a3b8))
+                                    .child("ARCHIVOS GENERADOS:"),
+                            )
+                            .child(
+                                div()
+                                    .p_2()
+                                    .rounded_sm()
+                                    .bg(rgb(0x1e293b))
+                                    .text_xs()
+                                    .text_color(rgb(0x67e8f9))
+                                    .child(format!("📄 JSON: {}", json_path)),
+                            )
+                            .child(
+                                div()
+                                    .p_2()
+                                    .rounded_sm()
+                                    .bg(rgb(0x1e293b))
+                                    .text_xs()
+                                    .text_color(rgb(0x86efac))
+                                    .child(format!("📊 CSV:  {}", csv_path)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .id("btn_abrir_carpeta_export")
+                                    .px_4()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(rgb(0x2563eb))
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(rgb(0x1d4ed8)))
+                                    .on_click(cx.listener(|this, _event, _window, _cx| {
+                                        this.state.abrir_carpeta_exportacion();
+                                    }))
+                                    .child("📁 Abrir Carpeta con los Archivos"),
+                            )
+                            .child(
+                                div()
+                                    .id("btn_cerrar_export_modal")
+                                    .px_4()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(rgb(0x334155))
+                                    .text_xs()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(rgb(0x475569)))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.state.mostrar_modal_exportacion = false;
+                                        cx.notify();
+                                    }))
+                                    .child("Cerrar"),
+                            ),
+                    ),
+            )
+    }
+
+    /// 1. Pantalla de Inicio: título, instrucciones básicas, tiempo disponible y botón Comenzar
+    fn render_start_screen(&self, cx: &mut Context<Self>) -> Div {
+        let total_retos = self.state.retos.len();
+        let puntos_maximos = self.state.puntos_maximos();
+
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .size_full()
+            .p_6()
+            .child(
+                div()
+                    .w(px(760.0))
+                    .p_6()
+                    .rounded_xl()
+                    .bg(rgb(0x0f172a))
+                    .border_1()
+                    .border_color(rgb(0x1e293b))
+                    .flex()
+                    .flex_col()
+                    .gap_5()
+                    // Cabecera con logotipo y título del simulador
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .pb_4()
+                            .border_b_1()
+                            .border_color(rgb(0x1e293b))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_4()
+                                    .child(
+                                        img(Self::logo_path())
+                                            .w(px(64.0))
+                                            .h(px(53.0))
+                                            .rounded_sm(),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .gap_1()
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .text_color(rgb(0x38bdf8))
+                                                    .child("INSTITUTO DAVANTE · ASIR · TEMA 7 BDD"),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_xl()
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .child("SQL Sprint Davante — Simulador Interactivo"),
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(rgb(0x1e293b))
+                                    .border_1()
+                                    .border_color(rgb(0x38bdf8))
+                                    .flex()
+                                    .flex_col()
+                                    .items_center()
+                                    .child(div().text_xs().text_color(rgb(0x94a3b8)).child("TIEMPO DISPONIBLE"))
+                                    .child(
+                                        div()
+                                            .text_base()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgb(0x38bdf8))
+                                            .child("⏱ 05:00 (300 s)"),
+                                    ),
+                            ),
+                    )
+                    // Instrucciones básicas
+                    .child(
+                        div()
+                            .p_4()
+                            .rounded_lg()
+                            .bg(rgb(0x131d31))
+                            .border_1()
+                            .border_color(rgb(0x1e293b))
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(0xfbbf24))
+                                    .child("INSTRUCCIONES BÁSICAS DE LA PRÁCTICA"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xe2e8f0))
+                                    .child(format!(
+                                        "1. El banco contiene {} retos SQL progresivos organizados en 5 niveles de dificultad (hasta {} puntos).",
+                                        total_retos, puntos_maximos
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xe2e8f0))
+                                    .child("2. Introduce tu consulta SELECT directamente en el editor o mediante la paleta rápida y el esquema lateral."),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xe2e8f0))
+                                    .child("3. Seguridad solo lectura: solo se admiten consultas SELECT únicas sobre davante_asir.db (visualización máxima de 50 filas)."),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xe2e8f0))
+                                    .child("4. Pulsa 'Ejecutar y comprobar' (o Ctrl+Enter) para evaluar columnas, filas, tipos y valores, y recibir pistas si lo necesitas."),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xe2e8f0))
+                                    .child("5. Dispones de 300 segundos globales. Al terminar o agotarse el tiempo podrás exportar tu informe en JSON y CSV."),
+                            ),
+                    )
+                    // Tabla resumen de niveles
+                    .child(self.render_level_breakdown_table())
+                    // Identificación del alumno y botón Comenzar
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .pt_2()
+                            .child(
+                                div()
+                                    .id("btn_edit_participante")
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(rgb(0x131d31))
+                                    .border_1()
+                                    .border_color(if self.state.editando_nombre {
+                                        rgb(0x38bdf8)
+                                    } else {
+                                        rgb(0x334155)
+                                    })
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.state.editando_nombre = true;
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap_2()
+                                            .text_xs()
+                                            .child(div().text_color(rgb(0x94a3b8)).child("👤 Alumno/a:"))
+                                            .child(
+                                                div()
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .text_color(rgb(0xf8fafc))
+                                                    .child(if self.state.editando_nombre {
+                                                        format!("{}█", self.state.participante_nombre)
+                                                    } else {
+                                                        format!("{} (clic para editar)", self.state.participante_nombre)
+                                                    }),
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("btn_comenzar_sesion")
+                                    .px_6()
+                                    .py_3()
+                                    .rounded_lg()
+                                    .bg(rgb(0x2563eb))
+                                    .text_sm()
+                                    .font_weight(FontWeight::BOLD)
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(rgb(0x1d4ed8)))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        if this.state.participante_nombre.trim().is_empty() {
+                                            this.state.participante_nombre = "Alumno demo".to_string();
+                                        }
+                                        this.state.iniciar_sesion();
+                                        cx.notify();
+                                    }))
+                                    .child("▶ Comenzar Sesión (Iniciar 05:00)"),
+                            ),
+                    ),
+            )
+    }
+
+    /// 3. Pantalla Final: puntuación total, retos correctos/incorrectos, errores, tiempo empleado/restante y exportación
+    fn render_final_screen(&self, cx: &mut Context<Self>) -> Div {
+        let aciertos = self.state.retos_superados.len();
+        let total_retos = self.state.retos.len();
+        let incorrectos = self.state.retos_no_superados();
+        let errores = self.state.errores_cometidos();
+        let puntos_actuales = self.state.puntos_actuales();
+        let puntos_maximos = self.state.puntos_maximos();
+        let tiempo_emp_m = self.state.tiempo_total_segundos / 60;
+        let tiempo_emp_s = self.state.tiempo_total_segundos % 60;
+        let tiempo_res_m = self.state.tiempo_restante_global / 60;
+        let tiempo_res_s = self.state.tiempo_restante_global % 60;
+        let por_tiempo = self.state.tiempo_restante_global == 0;
+
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .size_full()
+            .p_6()
+            .child(
+                div()
+                    .w(px(780.0))
+                    .p_6()
+                    .rounded_xl()
+                    .bg(rgb(0x0f172a))
+                    .border_1()
+                    .border_color(if por_tiempo { rgb(0xf59e0b) } else { rgb(0x10b981) })
+                    .flex()
+                    .flex_col()
+                    .gap_5()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .pb_4()
+                            .border_b_1()
+                            .border_color(rgb(0x1e293b))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(img(Self::logo_path()).w(px(52.0)).h(px(43.0)).rounded_sm())
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .text_color(if por_tiempo { rgb(0xf59e0b) } else { rgb(0x10b981) })
+                                                    .child(if por_tiempo {
+                                                        "⏱ TIEMPO GLOBAL AGOTADO · RESPUESTAS BLOQUEADAS"
+                                                    } else {
+                                                        "🏁 INFORME FINAL DE LA SESIÓN · RESPUESTAS BLOQUEADAS"
+                                                    }),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_lg()
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .child(format!(
+                                                        "Resultados de {} (Sesión #{})",
+                                                        self.state.participante_nombre, self.state.sesion_id
+                                                    )),
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .px_4()
+                                    .py_2()
+                                    .rounded_lg()
+                                    .bg(rgb(0x131d31))
+                                    .border_1()
+                                    .border_color(rgb(0xfbbf24))
+                                    .text_base()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(0xfbbf24))
+                                    .child(format!("⭐ {} / {} PTS", puntos_actuales, puntos_maximos)),
+                            ),
+                    )
+                    // Tarjetas resumen exigidas: correctos, incorrectos, errores, tiempo empleado y restante
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .p_3()
+                                    .rounded_lg()
+                                    .bg(rgb(0x131d31))
+                                    .border_1()
+                                    .border_color(rgb(0x10b981))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(div().text_xs().text_color(rgb(0x94a3b8)).child("Retos correctos"))
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgb(0x10b981))
+                                            .child(format!("{} / {}", aciertos, total_retos)),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .p_3()
+                                    .rounded_lg()
+                                    .bg(rgb(0x131d31))
+                                    .border_1()
+                                    .border_color(rgb(0xef4444))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(div().text_xs().text_color(rgb(0x94a3b8)).child("No superados / Errores"))
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgb(0xef4444))
+                                            .child(format!("{} ({} fallos)", incorrectos, errores)),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .p_3()
+                                    .rounded_lg()
+                                    .bg(rgb(0x131d31))
+                                    .border_1()
+                                    .border_color(rgb(0x38bdf8))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(div().text_xs().text_color(rgb(0x94a3b8)).child("Tiempo empleado"))
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgb(0x38bdf8))
+                                            .child(format!("{:02}:{:02}", tiempo_emp_m, tiempo_emp_s)),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .p_3()
+                                    .rounded_lg()
+                                    .bg(rgb(0x131d31))
+                                    .border_1()
+                                    .border_color(rgb(0xa78bfa))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(div().text_xs().text_color(rgb(0x94a3b8)).child("Tiempo restante"))
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgb(0xa78bfa))
+                                            .child(format!("{:02}:{:02}", tiempo_res_m, tiempo_res_s)),
+                                    ),
+                            ),
+                    )
+                    // Desglose de niveles y categorías
+                    .child(self.render_level_breakdown_table())
+                    // Botones finales de exportación y reinicio
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .pt_2()
+                            .child(
+                                div()
+                                    .id("btn_reiniciar_final")
+                                    .px_4()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(rgb(0x334155))
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(rgb(0x475569)))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.state.reiniciar_partida();
+                                        cx.notify();
+                                    }))
+                                    .child("↺ Iniciar Nueva Sesión"),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .id("btn_export_final")
+                                            .px_5()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(rgb(0x059669))
+                                            .text_sm()
+                                            .font_weight(FontWeight::BOLD)
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(rgb(0x10b981)))
+                                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                                this.state.exportar_resultados();
+                                                cx.notify();
+                                            }))
+                                            .child("💾 Exportar Informe (JSON y CSV)"),
+                                    ),
+                            ),
+                    ),
+            )
     }
 }
 
 impl Render for SimuladorApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let root = div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(0x0b0f19)) // Fondo general oscuro moderno
+            .text_color(rgb(0xf1f5f9))
+            .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                this.handle_key(event, cx);
+            }));
+
+        // 1. Pantalla de inicio e instrucciones antes de comenzar la sesión
+        if !self.state.sesion_iniciada {
+            return root.child(self.render_start_screen(cx));
+        }
+
+        // 2. Pantalla final (informe completo y bloqueo de nuevas respuestas)
+        if self.state.sesion_finalizada {
+            return root
+                .child(self.render_final_screen(cx))
+                .when(self.state.mostrar_modal_exportacion, |this| {
+                    this.child(self.render_export_modal(cx))
+                });
+        }
+
         let reto_actual = self.state.reto_actual().cloned();
         let total_retos = self.state.retos.len();
         let actual_idx = self.state.reto_actual_idx;
         let aciertos = self.state.retos_superados.len();
         let intentos = self.state.historial_intentos.len();
+        let errores = self.state.errores_cometidos();
         let puntos_actuales = self.state.puntos_actuales();
         let puntos_maximos = self.state.puntos_maximos();
 
@@ -89,18 +881,9 @@ impl Render for SimuladorApp {
             rgb(0x38bdf8) // Azul normal
         };
 
-        div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .bg(rgb(0x0b0f19)) // Fondo general oscuro moderno
-            .text_color(rgb(0xf1f5f9))
-            .track_focus(&self.focus_handle)
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                this.handle_key(event, cx);
-            }))
+        root
             // =========================================================================
-            // 1. CABECERA PRINCIPAL CON LOGO, TIEMPO GLOBAL Y SIN EQUIPOS
+            // 1. CABECERA PRINCIPAL CON LOGO, TIEMPO GLOBAL Y ACCIONES
             // =========================================================================
             .child(
                 div()
@@ -121,14 +904,10 @@ impl Render for SimuladorApp {
                             .items_center()
                             .gap_3()
                             .child(
-                                img(if Path::new("logotipo.png").exists() {
-                                    Path::new("logotipo.png")
-                                } else {
-                                    Path::new("assets/logotipo.png")
-                                })
-                                .w(px(46.0))
-                                .h(px(38.0))
-                                .rounded_sm(),
+                                img(Self::logo_path())
+                                    .w(px(46.0))
+                                    .h(px(38.0))
+                                    .rounded_sm(),
                             )
                             .child(
                                 div()
@@ -229,6 +1008,24 @@ impl Render for SimuladorApp {
                                         cx.notify();
                                     }))
                                     .child("💾 Exportar CSV/JSON"),
+                            )
+                            // Botón Finalizar sesión manualmente
+                            .child(
+                                div()
+                                    .id("btn_finalizar_sesion")
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(rgb(0xb91c1c))
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(rgb(0xdc2626)))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.state.finalizar_sesion(false);
+                                        cx.notify();
+                                    }))
+                                    .child("🏁 Finalizar"),
                             ),
                     ),
             )
@@ -753,6 +1550,7 @@ impl Render for SimuladorApp {
                                         div()
                                             .p_3()
                                             .min_h(px(100.0))
+                                            .font_family("Consolas")
                                             .text_sm()
                                             .child(
                                                 div()
@@ -800,7 +1598,11 @@ impl Render for SimuladorApp {
                                                 this.state.siguiente_reto();
                                                 cx.notify();
                                             }))
-                                            .child("Siguiente reto ⏭"),
+                                            .child(if actual_idx + 1 < total_retos {
+                                                "Siguiente reto ⏭"
+                                            } else {
+                                                "🏁 Finalizar y ver informe"
+                                            }),
                                     ),
                             )
                             // --- BANNER DE RETROALIMENTACIÓN ---
@@ -855,7 +1657,14 @@ impl Render for SimuladorApp {
                                                     .text_xs()
                                                     .text_color(rgb(0x38bdf8))
                                                     .child(if let Some(ref q) = self.state.query_result {
-                                                        format!("{:.3} ms | Total: {} filas", q.execution_time_ms, q.total_rows)
+                                                        if q.is_truncated {
+                                                            format!(
+                                                                "{:.2} ms | Mostrando 50 primeras filas (de {} totales)",
+                                                                q.execution_time_ms, q.total_rows
+                                                            )
+                                                        } else {
+                                                            format!("{:.2} ms | {} filas", q.execution_time_ms, q.total_rows)
+                                                        }
                                                     } else {
                                                         "Esperando ejecución...".to_string()
                                                     }),
@@ -865,13 +1674,12 @@ impl Render for SimuladorApp {
                                         div()
                                             .id("result_table")
                                             .max_h(px(260.0))
-                                            .overflow_y_scroll()
+                                            .overflow_scroll()
                                             .p_2()
                                             .child(if let Some(ref q) = self.state.query_result {
                                                 div()
                                                     .flex()
                                                     .flex_col()
-                                                    .size_full()
                                                     // Cabecera de columnas
                                                     .child(
                                                         div()
@@ -884,6 +1692,7 @@ impl Render for SimuladorApp {
                                                             .children(q.columns.iter().map(|c| {
                                                                 div()
                                                                     .w(px(140.0))
+                                                                    .flex_shrink_0()
                                                                     .text_xs()
                                                                     .font_weight(FontWeight::BOLD)
                                                                     .text_color(rgb(0x93c5fd))
@@ -902,6 +1711,7 @@ impl Render for SimuladorApp {
                                                             .children(row.iter().map(|val| {
                                                                 div()
                                                                     .w(px(140.0))
+                                                                    .flex_shrink_0()
                                                                     .text_xs()
                                                                     .text_color(rgb(0xcbd5e1))
                                                                     .child(val.clone())
@@ -953,15 +1763,15 @@ impl Render for SimuladorApp {
                                             .flex_row()
                                             .justify_between()
                                             .child(div().text_xs().text_color(rgb(0xcbd5e1)).child("Retos superados:"))
-                                            .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(rgb(0x10b981)).child(format!("{}/30", aciertos))),
+                                            .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(rgb(0x10b981)).child(format!("{}/{}", aciertos, total_retos))),
                                     )
                                     .child(
                                         div()
                                             .flex()
                                             .flex_row()
                                             .justify_between()
-                                            .child(div().text_xs().text_color(rgb(0xcbd5e1)).child("Intentos acumulados:"))
-                                            .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(rgb(0x38bdf8)).child(format!("{}", intentos))),
+                                            .child(div().text_xs().text_color(rgb(0xcbd5e1)).child("Intentos / Errores:"))
+                                            .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(rgb(0x38bdf8)).child(format!("{} / {}", intentos, errores))),
                                     )
                                     .child(
                                         div()
@@ -1117,13 +1927,6 @@ impl Render for SimuladorApp {
             // 3. MODAL CLASIFICACIÓN / PUNTUACIÓN POR CATEGORÍAS (SIN EQUIPOS)
             // =========================================================================
             .when(self.state.mostrar_modal_ranking, |this| {
-                // Conteo por niveles
-                let n1_ok = self.state.retos.iter().filter(|r| r.nivel == 1 && self.state.retos_superados.contains(&r.id)).count();
-                let n2_ok = self.state.retos.iter().filter(|r| r.nivel == 2 && self.state.retos_superados.contains(&r.id)).count();
-                let n3_ok = self.state.retos.iter().filter(|r| r.nivel == 3 && self.state.retos_superados.contains(&r.id)).count();
-                let n4_ok = self.state.retos.iter().filter(|r| r.nivel == 4 && self.state.retos_superados.contains(&r.id)).count();
-                let n5_ok = self.state.retos.iter().filter(|r| r.nivel == 5 && self.state.retos_superados.contains(&r.id)).count();
-
                 this.child(
                     div()
                         .absolute()
@@ -1134,7 +1937,7 @@ impl Render for SimuladorApp {
                         .justify_center()
                         .child(
                             div()
-                                .w(px(580.0))
+                                .w(px(620.0))
                                 .p_6()
                                 .rounded_xl()
                                 .bg(rgb(0x0f172a))
@@ -1171,103 +1974,7 @@ impl Render for SimuladorApp {
                                                 .child("✕"),
                                         ),
                                 )
-                                // Tabla de niveles, puntos y categorías
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .gap_2()
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .p_2()
-                                                .bg(rgb(0x1e293b))
-                                                .text_xs()
-                                                .font_weight(FontWeight::BOLD)
-                                                .child(div().w(px(70.0)).child("Nivel"))
-                                                .child(div().w(px(220.0)).child("Categoría"))
-                                                .child(div().w(px(90.0)).child("Superados"))
-                                                .child(div().w(px(70.0)).child("Puntos"))
-                                                .child(div().w(px(80.0)).child("Estado")),
-                                        )
-                                        // Nivel 1
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .p_2()
-                                                .bg(rgb(0x131d31))
-                                                .text_xs()
-                                                .text_color(rgb(0x10b981))
-                                                .child(div().w(px(70.0)).child("Nivel 1"))
-                                                .child(div().w(px(220.0)).text_color(rgb(0xe2e8f0)).child("Selección y Proyección"))
-                                                .child(div().w(px(90.0)).child(format!("{}/6", n1_ok)))
-                                                .child(div().w(px(70.0)).font_weight(FontWeight::BOLD).child(format!("{} pts", n1_ok * 10)))
-                                                .child(div().w(px(80.0)).child(if n1_ok == 6 { "Completado" } else { "En curso" })),
-                                        )
-                                        // Nivel 2
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .p_2()
-                                                .bg(rgb(0x0f172a))
-                                                .text_xs()
-                                                .text_color(rgb(0x06b6d4))
-                                                .child(div().w(px(70.0)).child("Nivel 2"))
-                                                .child(div().w(px(220.0)).text_color(rgb(0xe2e8f0)).child("Filtrado con WHERE"))
-                                                .child(div().w(px(90.0)).child(format!("{}/6", n2_ok)))
-                                                .child(div().w(px(70.0)).font_weight(FontWeight::BOLD).child(format!("{} pts", n2_ok * 20)))
-                                                .child(div().w(px(80.0)).child(if n2_ok == 6 { "Completado" } else { "En curso" })),
-                                        )
-                                        // Nivel 3
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .p_2()
-                                                .bg(rgb(0x131d31))
-                                                .text_xs()
-                                                .text_color(rgb(0x8b5cf6))
-                                                .child(div().w(px(70.0)).child("Nivel 3"))
-                                                .child(div().w(px(220.0)).text_color(rgb(0xe2e8f0)).child("Ordenación y Límites"))
-                                                .child(div().w(px(90.0)).child(format!("{}/6", n3_ok)))
-                                                .child(div().w(px(70.0)).font_weight(FontWeight::BOLD).child(format!("{} pts", n3_ok * 30)))
-                                                .child(div().w(px(80.0)).child(if n3_ok == 6 { "Completado" } else { "En curso" })),
-                                        )
-                                        // Nivel 4
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .p_2()
-                                                .bg(rgb(0x0f172a))
-                                                .text_xs()
-                                                .text_color(rgb(0xf59e0b))
-                                                .child(div().w(px(70.0)).child("Nivel 4"))
-                                                .child(div().w(px(220.0)).text_color(rgb(0xe2e8f0)).child("Resumen y Agregación"))
-                                                .child(div().w(px(90.0)).child(format!("{}/6", n4_ok)))
-                                                .child(div().w(px(70.0)).font_weight(FontWeight::BOLD).child(format!("{} pts", n4_ok * 40)))
-                                                .child(div().w(px(80.0)).child(if n4_ok == 6 { "Completado" } else { "En curso" })),
-                                        )
-                                        // Nivel 5
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .p_2()
-                                                .bg(rgb(0x131d31))
-                                                .text_xs()
-                                                .text_color(rgb(0xef4444))
-                                                .child(div().w(px(70.0)).child("Nivel 5"))
-                                                .child(div().w(px(220.0)).text_color(rgb(0xe2e8f0)).child("Agrupación Avanzada (HAVING)"))
-                                                .child(div().w(px(90.0)).child(format!("{}/6", n5_ok)))
-                                                .child(div().w(px(70.0)).font_weight(FontWeight::BOLD).child(format!("{} pts", n5_ok * 50)))
-                                                .child(div().w(px(80.0)).child(if n5_ok == 6 { "Completado" } else { "En curso" })),
-                                        ),
-                                )
-                                // Resumen total y acciones
+                                .child(self.render_level_breakdown_table())
                                 .child(
                                     div()
                                         .p_3()
@@ -1281,8 +1988,22 @@ impl Render for SimuladorApp {
                                             div()
                                                 .flex()
                                                 .flex_col()
-                                                .child(div().text_xs().text_color(rgb(0x94a3b8)).child(format!("Participante: {}", self.state.participante_nombre)))
-                                                .child(div().text_sm().font_weight(FontWeight::BOLD).text_color(rgb(0xfbbf24)).child(format!("PUNTUACIÓN TOTAL: {} / {} PTS", puntos_actuales, puntos_maximos))),
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(rgb(0x94a3b8))
+                                                        .child(format!(
+                                                            "Participante: {} · Aciertos: {}/{} · Errores: {}",
+                                                            self.state.participante_nombre, aciertos, total_retos, errores
+                                                        )),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .font_weight(FontWeight::BOLD)
+                                                        .text_color(rgb(0xfbbf24))
+                                                        .child(format!("PUNTUACIÓN TOTAL: {} / {} PTS", puntos_actuales, puntos_maximos)),
+                                                ),
                                         )
                                         .child(
                                             div()
@@ -1312,170 +2033,10 @@ impl Render for SimuladorApp {
                 )
             })
             // =========================================================================
-            // 4. MODAL DE CONFIRMACIÓN DE EXPORTACIÓN (100% FUNCIONAL)
+            // 4. MODAL DE CONFIRMACIÓN DE EXPORTACIÓN (REUTILIZADO)
             // =========================================================================
             .when(self.state.mostrar_modal_exportacion, |this| {
-                let json_path = self.state.ruta_export_json.clone().unwrap_or_else(|| "exports/resultados_sprint_sql.json".to_string());
-                let csv_path = self.state.ruta_export_csv.clone().unwrap_or_else(|| "exports/resultados_sprint_sql.csv".to_string());
-
-                this.child(
-                    div()
-                        .absolute()
-                        .size_full()
-                        .bg(rgba(0x000000d0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            div()
-                                .w(px(560.0))
-                                .p_6()
-                                .rounded_xl()
-                                .bg(rgb(0x0f172a))
-                                .border_1()
-                                .border_color(rgb(0x059669))
-                                .flex()
-                                .flex_col()
-                                .gap_4()
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .justify_between()
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .items_center()
-                                                .gap_2()
-                                                .child(div().text_lg().child("✅"))
-                                                .child(div().text_base().font_weight(FontWeight::BOLD).text_color(rgb(0x10b981)).child("¡Resultados Exportados con Éxito!")),
-                                        )
-                                        .child(
-                                            div()
-                                                .id("btn_cerrar_modal_export")
-                                                .cursor_pointer()
-                                                .text_sm()
-                                                .text_color(rgb(0x94a3b8))
-                                                .on_click(cx.listener(|this, _event, _window, cx| {
-                                                    this.state.mostrar_modal_exportacion = false;
-                                                    cx.notify();
-                                                }))
-                                                .child("✕"),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .p_3()
-                                        .rounded_md()
-                                        .bg(rgb(0x131d31))
-                                        .border_1()
-                                        .border_color(rgb(0x1e293b))
-                                        .flex()
-                                        .flex_col()
-                                        .gap_2()
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .font_weight(FontWeight::BOLD)
-                                                .text_color(rgb(0x38bdf8))
-                                                .child(format!("Sesión: #{} · Participante: {}", self.state.sesion_id, self.state.participante_nombre)),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(rgb(0xcbd5e1))
-                                                .child(format!("• Puntuación conseguida: {} / {} pts", puntos_actuales, puntos_maximos)),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(rgb(0xcbd5e1))
-                                                .child(format!("• Retos superados: {} de 30", aciertos)),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(rgb(0xcbd5e1))
-                                                .child(format!("• Intentos registrados: {}", intentos)),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(rgb(0xcbd5e1))
-                                                .child(format!("• Tiempo total invertido: {:02}:{:02}", self.state.tiempo_total_segundos / 60, self.state.tiempo_total_segundos % 60)),
-                                        ),
-                                )
-                                // Rutas de los archivos exportados
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .gap_2()
-                                        .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(rgb(0x94a3b8)).child("ARCHIVOS GENERADOS:"))
-                                        .child(
-                                            div()
-                                                .p_2()
-                                                .rounded_sm()
-                                                .bg(rgb(0x1e293b))
-                                                .text_xs()
-                                                .text_color(rgb(0x67e8f9))
-                                                .child(format!("📄 JSON: {}", json_path)),
-                                        )
-                                        .child(
-                                            div()
-                                                .p_2()
-                                                .rounded_sm()
-                                                .bg(rgb(0x1e293b))
-                                                .text_xs()
-                                                .text_color(rgb(0x86efac))
-                                                .child(format!("📊 CSV:  {}", csv_path)),
-                                        ),
-                                )
-                                // Botones de acción
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .justify_end()
-                                        .gap_3()
-                                        .child(
-                                            div()
-                                                .id("btn_abrir_carpeta_export")
-                                                .px_4()
-                                                .py_2()
-                                                .rounded_md()
-                                                .bg(rgb(0x2563eb))
-                                                .text_xs()
-                                                .font_weight(FontWeight::BOLD)
-                                                .cursor_pointer()
-                                                .hover(|s| s.bg(rgb(0x1d4ed8)))
-                                                .on_click(cx.listener(|this, _event, _window, _cx| {
-                                                    this.state.abrir_carpeta_exportacion();
-                                                }))
-                                                .child("📁 Abrir Carpeta con los Archivos"),
-                                        )
-                                        .child(
-                                            div()
-                                                .id("btn_cerrar_export_modal")
-                                                .px_4()
-                                                .py_2()
-                                                .rounded_md()
-                                                .bg(rgb(0x334155))
-                                                .text_xs()
-                                                .font_weight(FontWeight::MEDIUM)
-                                                .cursor_pointer()
-                                                .hover(|s| s.bg(rgb(0x475569)))
-                                                .on_click(cx.listener(|this, _event, _window, cx| {
-                                                    this.state.mostrar_modal_exportacion = false;
-                                                    cx.notify();
-                                                }))
-                                                .child("Cerrar"),
-                                        ),
-                                ),
-                        ),
-                )
+                this.child(self.render_export_modal(cx))
             })
     }
 }

@@ -3,7 +3,117 @@ use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
 use std::time::Instant;
 
-use crate::models::{QueryResult, SchemaColumn, SchemaTable};
+use crate::models::{CellValue, QueryResult, SchemaColumn, SchemaTable};
+
+/// Strip leading whitespace and SQL comments (-- line and /* block */) to inspect the first keyword.
+fn strip_leading_comments(mut s: &str) -> &str {
+    loop {
+        s = s.trim_start();
+        if let Some(rest) = s.strip_prefix("--") {
+            if let Some(nl) = rest.find('\n') {
+                s = &rest[nl + 1..];
+            } else {
+                return "";
+            }
+        } else if let Some(rest) = s.strip_prefix("/*") {
+            if let Some(end) = rest.find("*/") {
+                s = &rest[end + 2..];
+            } else {
+                return "";
+            }
+        } else {
+            return s;
+        }
+    }
+}
+
+/// Detect whether SQL contains more than one statement separated by `;` outside quotes and comments.
+fn has_chained_statements(sql: &str) -> bool {
+    let bytes = sql.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut saw_semicolon = false;
+
+    while i < len {
+        let b = bytes[i];
+        if in_line_comment {
+            if b == b'\n' {
+                in_line_comment = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_block_comment {
+            if b == b'*' && i + 1 < len && bytes[i + 1] == b'/' {
+                in_block_comment = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        if in_single {
+            if b == b'\'' {
+                if i + 1 < len && bytes[i + 1] == b'\'' {
+                    i += 2;
+                    continue;
+                }
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if b == b'"' {
+                if i + 1 < len && bytes[i + 1] == b'"' {
+                    i += 2;
+                    continue;
+                }
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        // Check comment starts outside strings
+        if b == b'-' && i + 1 < len && bytes[i + 1] == b'-' {
+            in_line_comment = true;
+            i += 2;
+            continue;
+        }
+        if b == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
+            in_block_comment = true;
+            i += 2;
+            continue;
+        }
+
+        if b.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+
+        // Any meaningful token after a semicolon indicates chained statements
+        if saw_semicolon {
+            return true;
+        }
+
+        if b == b'\'' {
+            in_single = true;
+        } else if b == b'"' {
+            in_double = true;
+        } else if b == b';' {
+            saw_semicolon = true;
+        }
+
+        i += 1;
+    }
+
+    false
+}
 
 pub struct DbManager {
     db_path: String,
@@ -23,7 +133,7 @@ impl DbManager {
             &uri,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
         )
-        .map_err(|e| format!("Error abriendo base de datos en solo lectura: {}", e))?;
+        .map_err(|_| "No se pudo abrir la base de datos educativa en modo solo lectura.".to_string())?;
 
         // Authorizer: Deny ALL write/modification actions
         conn.authorizer(Some(|auth_ctx: AuthContext| match auth_ctx.action {
@@ -39,27 +149,42 @@ impl DbManager {
         Ok(conn)
     }
 
-    /// Execute a SELECT query safely with a row display limit (default 100 rows for display)
+    /// Execute a SELECT query safely with a row display limit (50 rows for UI display)
     pub fn execute_query(&self, sql: &str, display_limit: usize) -> Result<QueryResult, String> {
-        // Validación previa de palabras clave básicas para dar mensajes de error amigables
-        let trimmed = sql.trim();
-        let upper = trimmed.to_uppercase();
-
-        if !upper.starts_with("SELECT") && !upper.starts_with("WITH") {
-            return Err("Operación denegada: Solo se permiten consultas de lectura 'SELECT'.".to_string());
+        // 1. Comprobar entrada no vacía (incluyendo si solo hay comentarios iniciales)
+        let cleaned = strip_leading_comments(sql).trim();
+        if cleaned.is_empty() {
+            return Err("La consulta está vacía. Introduce una sentencia SELECT válida.".to_string());
         }
 
-        // Bloquear sentencias encadenadas con punto y coma
-        let statement_count = trimmed.split(';').filter(|s| !s.trim().is_empty()).count();
-        if statement_count > 1 {
-            return Err("Seguridad: No se permiten múltiples sentencias encadenadas con ';'".to_string());
+        // 2. Verificar que comienza con SELECT válido (con límite de palabra)
+        let upper = cleaned.to_uppercase();
+        let starts_select = upper == "SELECT"
+            || (upper.starts_with("SELECT")
+                && upper.as_bytes().get(6).is_some_and(|b| {
+                    b.is_ascii_whitespace() || *b == b'*' || *b == b'(' || *b == b'\'' || *b == b'"'
+                }));
+
+        if !starts_select {
+            return Err(
+                "Operación denegada: Solo se permiten consultas de lectura que comiencen con 'SELECT'."
+                    .to_string(),
+            );
+        }
+
+        // 3. Bloquear sentencias encadenadas con punto y coma fuera de literales/comentarios
+        if has_chained_statements(cleaned) {
+            return Err(
+                "Seguridad: No se permiten múltiples sentencias encadenadas separadas por ';'."
+                    .to_string(),
+            );
         }
 
         let conn = self.open_read_only()?;
         let start = Instant::now();
 
         let mut stmt = conn
-            .prepare(trimmed)
+            .prepare(cleaned)
             .map_err(|e| format!("Error de sintaxis SQL: {}", e))?;
 
         let column_count = stmt.column_count();
@@ -74,35 +199,48 @@ impl DbManager {
             .map_err(|e| format!("Error ejecutando consulta: {}", e))?;
 
         let mut result_rows = Vec::new();
+        let mut typed_rows = Vec::new();
         let mut total_rows = 0;
         let mut is_truncated = false;
 
-        while let Some(row) = rows.next().map_err(|e| format!("Error leyendo fila: {}", e))? {
+        while let Some(row) = rows
+            .next()
+            .map_err(|e| format!("Error leyendo resultados: {}", e))?
+        {
             total_rows += 1;
             if result_rows.len() < display_limit {
                 let mut row_vals = Vec::with_capacity(column_count);
+                let mut typed_vals = Vec::with_capacity(column_count);
                 for i in 0..column_count {
-                    let val = match row.get_ref(i) {
-                        Ok(rusqlite::types::ValueRef::Null) => "NULL".to_string(),
-                        Ok(rusqlite::types::ValueRef::Integer(n)) => n.to_string(),
+                    let (str_val, cell_val) = match row.get_ref(i) {
+                        Ok(rusqlite::types::ValueRef::Null) => {
+                            ("NULL".to_string(), CellValue::Null)
+                        }
+                        Ok(rusqlite::types::ValueRef::Integer(n)) => {
+                            (n.to_string(), CellValue::Integer(n))
+                        }
                         Ok(rusqlite::types::ValueRef::Real(f)) => {
-                            if f.fract() == 0.0 {
+                            let s = if f.fract() == 0.0 {
                                 format!("{:.1}", f)
                             } else {
                                 format!("{:.2}", f)
-                            }
+                            };
+                            (s, CellValue::Real(f))
                         }
                         Ok(rusqlite::types::ValueRef::Text(t)) => {
-                            String::from_utf8_lossy(t).to_string()
+                            let s = String::from_utf8_lossy(t).to_string();
+                            (s.clone(), CellValue::Text(s))
                         }
                         Ok(rusqlite::types::ValueRef::Blob(b)) => {
-                            format!("<BLOB {} bytes>", b.len())
+                            (format!("<BLOB {} bytes>", b.len()), CellValue::Blob(b.len()))
                         }
-                        Err(_) => "ERR".to_string(),
+                        Err(_) => ("ERR".to_string(), CellValue::Text("ERR".to_string())),
                     };
-                    row_vals.push(val);
+                    row_vals.push(str_val);
+                    typed_vals.push(cell_val);
                 }
                 result_rows.push(row_vals);
+                typed_rows.push(typed_vals);
             } else {
                 is_truncated = true;
             }
@@ -114,6 +252,7 @@ impl DbManager {
         Ok(QueryResult {
             columns: column_names,
             rows: result_rows,
+            typed_rows,
             total_rows,
             execution_time_ms,
             is_truncated,
