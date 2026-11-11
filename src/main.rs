@@ -441,6 +441,12 @@ impl SimuladorApp {
                                                     .text_xl()
                                                     .font_weight(FontWeight::BOLD)
                                                     .child("SQL Sprint Davante — Simulador Interactivo"),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(rgb(0x94a3b8))
+                                                    .child("Programa realizado por Hector, Aya y Nerea"),
                                             ),
                                     ),
                             )
@@ -658,6 +664,12 @@ impl SimuladorApp {
                                                         "Resultados de {} (Sesión #{})",
                                                         self.state.participante_nombre, self.state.sesion_id
                                                     )),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(rgb(0x94a3b8))
+                                                    .child("Programa realizado por Hector, Aya y Nerea"),
                                             ),
                                     ),
                             )
@@ -874,12 +886,12 @@ impl Render for SimuladorApp {
                     .flex_row()
                     .items_center()
                     .justify_between()
-                    .h(px(56.0))
+                    .h(px(64.0))
                     .px_6()
                     .bg(rgb(0x0f172a))
                     .border_b_1()
                     .border_color(rgb(0x1e293b))
-                    // Lado izquierdo: Logotipo + Nombre del centro y app
+                    // Lado izquierdo: Logotipo + Nombre del centro, app y autores
                     .child(
                         div()
                             .flex()
@@ -908,6 +920,12 @@ impl Render for SimuladorApp {
                                             .text_sm()
                                             .font_weight(FontWeight::BOLD)
                                             .child("SQL Sprint (GPU Accelerated)"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(0x94a3b8))
+                                            .child("Programa realizado por Hector, Aya y Nerea"),
                                     ),
                             ),
                     )
