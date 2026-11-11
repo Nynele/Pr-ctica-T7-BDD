@@ -1,7 +1,10 @@
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use rusqlite::{Connection, OpenFlags};
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+const EMBEDDED_DB: &[u8] = include_bytes!("../assets/davante_asir.db");
 
 use crate::models::{CellValue, QueryResult, SchemaColumn, SchemaTable};
 
@@ -124,6 +127,39 @@ impl DbManager {
         Self {
             db_path: path.as_ref().to_string_lossy().to_string(),
         }
+    }
+
+    /// Resolve local database path or extract the embedded copy for standalone .exe distribution.
+    pub fn resolve_portable_db() -> PathBuf {
+        let cwd_db = PathBuf::from("assets/davante_asir.db");
+        if cwd_db.exists() {
+            return cwd_db;
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let near_assets = dir.join("assets").join("davante_asir.db");
+                if near_assets.exists() {
+                    return near_assets;
+                }
+                let near_root = dir.join("davante_asir.db");
+                if near_root.exists() {
+                    return near_root;
+                }
+            }
+        }
+
+        // Standalone .exe fallback: extract embedded DB into temp folder once
+        let cache_dir = std::env::temp_dir().join("BD_Hector_Nerea_Deborah_db");
+        let _ = fs::create_dir_all(&cache_dir);
+        let cache_db = cache_dir.join("davante_asir.db");
+        let needs_write = match fs::metadata(&cache_db) {
+            Ok(meta) => meta.len() != EMBEDDED_DB.len() as u64,
+            Err(_) => true,
+        };
+        if needs_write {
+            let _ = fs::write(&cache_db, EMBEDDED_DB);
+        }
+        cache_db
     }
 
     /// Open a secure read-only SQLite connection with full authorizer restrictions
@@ -264,7 +300,7 @@ impl DbManager {
         let conn = self.open_read_only()?;
         let mut stmt = conn
             .prepare(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'actividades_evaluables' ORDER BY name",
             )
             .map_err(|e| format!("Error leyendo tablas: {}", e))?;
 

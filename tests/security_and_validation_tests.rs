@@ -1,5 +1,6 @@
 use simulador_sql_davante::app_state::SimuladorState;
 use simulador_sql_davante::db::DbManager;
+use simulador_sql_davante::export::Exporter;
 use simulador_sql_davante::models::Reto;
 use simulador_sql_davante::validator::Validator;
 use std::fs;
@@ -117,8 +118,26 @@ fn test_validation_detects_wrong_query() {
 #[test]
 fn test_semicolon_inside_literal_allowed() {
     let db = DbManager::new("assets/davante_asir.db");
-    let res = db.execute_query("SELECT * FROM actividades_evaluables WHERE titulo LIKE '%;%';", 10);
+    let res = db.execute_query("SELECT * FROM alumnos WHERE nombre LIKE '%;%';", 10);
     assert!(res.is_ok(), "Un ';' dentro de comillas simples no es una sentencia encadenada");
+}
+
+#[test]
+fn test_schema_excludes_actividades_evaluables_and_export_path() {
+    let db = DbManager::new("assets/davante_asir.db");
+    let schema = db.get_schema().expect("Debe leer el esquema");
+    assert!(
+        !schema.iter().any(|t| t.name == "actividades_evaluables"),
+        "El esquema no debe mostrar actividades_evaluables"
+    );
+    assert_eq!(schema.len(), 11, "Deben cargarse las 11 tablas restantes");
+
+    let export_dir = Exporter::get_export_dir();
+    assert_eq!(
+        export_dir.file_name().and_then(|s| s.to_str()),
+        Some("BD_Hector_Nerea_Deborah"),
+        "La carpeta de exportación debe llamarse BD_Hector_Nerea_Deborah dentro de Documentos"
+    );
 }
 
 #[test]
@@ -127,7 +146,11 @@ fn test_session_lifecycle_timer_and_blocking() {
     assert!(!state.sesion_iniciada, "Debe empezar en la pantalla de inicio");
     assert!(!state.temporizador_activo, "El cronómetro no debe correr antes de comenzar");
     assert_eq!(state.tiempo_restante_global, 300);
-    assert_eq!(state.puntos_maximos(), 900);
+    assert_eq!(state.calificacion_texto(), "0/30");
+    assert!(
+        !state.retos.iter().any(|r| r.tabla == "actividades_evaluables"),
+        "Ningún reto debe apuntar a actividades_evaluables"
+    );
 
     // Tick antes de comenzar no descuenta tiempo
     state.tick_segundo();
@@ -151,14 +174,14 @@ fn test_session_lifecycle_timer_and_blocking() {
     state.sql_buffer = "SELECT id_alumno FROM alumnos LIMIT 5;".to_string();
     state.ejecutar_y_comprobar();
     assert_eq!(state.errores_cometidos(), 1);
-    assert_eq!(state.puntos_actuales(), 0);
+    assert_eq!(state.calificacion_texto(), "0/30");
     assert!(state.mostrar_pistas, "Las pistas deben mostrarse automáticamente al fallar");
 
-    // Respuesta correcta suma puntos del nivel 1 (10 pts)
+    // Respuesta correcta suma acierto sobre 30
     state.sql_buffer = "-- Reto Q01\nSELECT * FROM alumnos LIMIT 20;".to_string();
     state.ejecutar_y_comprobar();
     assert_eq!(state.retos_superados.len(), 1);
-    assert_eq!(state.puntos_actuales(), 10);
+    assert_eq!(state.calificacion_texto(), "1/30");
     assert_eq!(state.retos_no_superados(), 29);
 
     // Finalizar sesión bloquea nuevas respuestas y detiene el temporizador
@@ -171,5 +194,5 @@ fn test_session_lifecycle_timer_and_blocking() {
     state.sql_buffer = "SELECT id_alumno, nombre, apellido1, localidad, fecha_alta FROM alumnos;".to_string();
     state.ejecutar_y_comprobar();
     assert_eq!(state.historial_intentos.len(), intentos_antes, "No debe permitir nuevos envíos tras finalizar");
-    assert_eq!(state.puntos_actuales(), 10, "No debe otorgar puntos tras finalizar");
+    assert_eq!(state.calificacion_texto(), "1/30");
 }

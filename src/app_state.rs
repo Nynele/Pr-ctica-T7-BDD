@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::db::DbManager;
@@ -9,6 +9,8 @@ use crate::models::{
     IntentoRegistro, QueryResult, Reto, SchemaTable, SesionResumen, ValidationResult,
 };
 use crate::validator::Validator;
+
+const EMBEDDED_RETOS: &str = include_str!("../assets/retos.json");
 
 pub struct SimuladorState {
     pub db: DbManager,
@@ -25,10 +27,10 @@ pub struct SimuladorState {
     // Editor SQL
     pub sql_buffer: String,
 
-    // Resultados
+    // Resultados y evaluación (sin banner inferior separado)
     pub query_result: Option<QueryResult>,
     pub validation_result: Option<ValidationResult>,
-    pub feedback_banner: Option<(bool, String)>, // (es_exito, mensaje)
+    pub status_feedback: Option<(bool, String)>, // (es_exito, mensaje) mostrado dentro del panel de resultados
 
     // Esquema de la BD
     pub schema: Vec<SchemaTable>,
@@ -37,8 +39,8 @@ pub struct SimuladorState {
     // Categorías de retos expandidas en la barra lateral
     pub categorias_expandidas: HashMap<u8, bool>,
 
-    // Progreso y métricas
-    pub retos_superados: Vec<String>, // IDs de retos acertados
+    // Progreso y métricas (evaluación sobre 30 retos, ej. 28/30)
+    pub retos_superados: Vec<String>,
     pub intentos_por_reto: HashMap<String, usize>,
     pub historial_intentos: Vec<IntentoRegistro>,
     pub tiempo_total_segundos: u64,
@@ -55,26 +57,34 @@ pub struct SimuladorState {
 }
 
 impl SimuladorState {
-    pub fn new() -> Self {
-        let db_path = "assets/davante_asir.db";
-        let retos_path = "assets/retos.json";
+    fn load_retos() -> Vec<Reto> {
+        let local = PathBuf::from("assets/retos.json");
+        if local.exists() {
+            if let Ok(content) = fs::read_to_string(local) {
+                if let Ok(parsed) = serde_json::from_str::<Vec<Reto>>(&content) {
+                    return parsed;
+                }
+            }
+        }
+        serde_json::from_str(EMBEDDED_RETOS).unwrap_or_default()
+    }
 
+    pub fn new() -> Self {
+        let db_path = DbManager::resolve_portable_db();
         let db = DbManager::new(db_path);
 
-        // Cargar 30 retos desde JSON externo como exige el PDF
-        let retos: Vec<Reto> = match fs::read_to_string(retos_path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-            Err(_) => Vec::new(),
-        };
+        // Cargar 30 retos (archivo local o embebido dentro del .exe)
+        let retos = Self::load_retos();
 
-        // Cargar esquema completo de la base de datos
+        // Cargar esquema de la BD (sin actividades_evaluables)
         let schema = db.get_schema().unwrap_or_default();
         let mut tablas_expandidas = HashMap::new();
         for t in &schema {
             tablas_expandidas.insert(t.name.clone(), false);
         }
-        // Expandir por defecto la tabla del primer reto
-        tablas_expandidas.insert("alumnos".to_string(), true);
+        if !retos.is_empty() && tablas_expandidas.contains_key(&retos[0].tabla) {
+            tablas_expandidas.insert(retos[0].tabla.clone(), true);
+        }
 
         // Expandir todas las categorías de retos por defecto
         let mut categorias_expandidas = HashMap::new();
@@ -96,7 +106,7 @@ impl SimuladorState {
             sesion_id: Uuid::new_v4().to_string()[..8].to_uppercase(),
             fecha_inicio: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
 
-            // TIEMPO GLOBAL DE 5 MINUTOS (300 SEGUNDOS) - empieza en pausa hasta pulsar "Comenzar"
+            // TIEMPO GLOBAL DE 5 MINUTOS (300 SEGUNDOS) - en pausa hasta pulsar "Comenzar"
             tiempo_restante_global: 300,
             temporizador_activo: false,
 
@@ -104,10 +114,7 @@ impl SimuladorState {
 
             query_result: None,
             validation_result: None,
-            feedback_banner: Some((
-                false,
-                "Preparado: Tienes 5 minutos globales para completar los retos. ¡Buena suerte!".to_string(),
-            )),
+            status_feedback: None,
 
             schema,
             tablas_expandidas,
@@ -133,6 +140,11 @@ impl SimuladorState {
         self.retos.get(self.reto_actual_idx)
     }
 
+    /// Calificación en formato X/30 (ej. "28/30")
+    pub fn calificacion_texto(&self) -> String {
+        format!("{}/{}", self.retos_superados.len(), self.retos.len())
+    }
+
     /// Iniciar la sesión desde la pantalla de bienvenida
     pub fn iniciar_sesion(&mut self) {
         self.sesion_iniciada = true;
@@ -143,19 +155,10 @@ impl SimuladorState {
     }
 
     /// Finalizar la sesión (por tiempo agotado o por decisión del alumno) y bloquear nuevas respuestas
-    pub fn finalizar_sesion(&mut self, por_tiempo: bool) {
+    pub fn finalizar_sesion(&mut self, _por_tiempo: bool) {
         self.sesion_finalizada = true;
         self.temporizador_activo = false;
         self.mostrar_modal_ranking = false;
-        self.feedback_banner = Some((
-            false,
-            if por_tiempo {
-                "⏱ ¡Tiempo global de 5 minutos agotado! Nuevas respuestas bloqueadas."
-            } else {
-                "🏁 Sesión finalizada correctamente. Nuevas respuestas bloqueadas."
-            }
-            .to_string(),
-        ));
     }
 
     /// Número total de intentos erróneos acumulados en la sesión
@@ -166,20 +169,6 @@ impl SimuladorState {
     /// Número de retos no superados (incorrectos o sin completar)
     pub fn retos_no_superados(&self) -> usize {
         self.retos.len().saturating_sub(self.retos_superados.len())
-    }
-
-    /// Calcula la puntuación total acumulada sumando los puntos de cada reto superado
-    pub fn puntos_actuales(&self) -> u32 {
-        self.retos
-            .iter()
-            .filter(|r| self.retos_superados.contains(&r.id))
-            .map(|r| r.puntos())
-            .sum()
-    }
-
-    /// Puntos totales posibles de los 30 retos (N1=6*10, N2=6*20, N3=6*30, N4=6*40, N5=6*50 = 900)
-    pub fn puntos_maximos(&self) -> u32 {
-        self.retos.iter().map(|r| r.puntos()).sum()
     }
 
     /// Ejecutar y validar la consulta del usuario
@@ -198,7 +187,7 @@ impl SimuladorState {
         let sql = self.sql_buffer.trim().to_string();
 
         if sql.is_empty() {
-            self.feedback_banner = Some((false, "Introduce una sentencia SQL para ejecutar.".to_string()));
+            self.status_feedback = Some((false, "Introduce una sentencia SQL para ejecutar.".to_string()));
             return;
         }
 
@@ -210,9 +199,8 @@ impl SimuladorState {
             Err(err) => {
                 self.query_result = None;
                 self.mostrar_pistas = true;
-                self.feedback_banner = Some((false, format!("Error SQL: {}", err)));
+                self.status_feedback = Some((false, format!("Error SQL: {}", err)));
 
-                // Registrar intento fallido por error de sintaxis o seguridad (sin otorgar puntos)
                 *self.intentos_por_reto.entry(reto.id.clone()).or_insert(0) += 1;
                 self.historial_intentos.push(IntentoRegistro {
                     reto_id: reto.id.clone(),
@@ -220,7 +208,6 @@ impl SimuladorState {
                     timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
                     tiempo_segundos: self.tiempo_total_segundos,
                     superado: false,
-                    puntos_obtenidos: 0,
                     mensaje_error: Some(err),
                 });
                 return;
@@ -230,7 +217,6 @@ impl SimuladorState {
         // 2. Validación semántica profunda (columnas, filas, tipos y valores)
         let val_res = Validator::validate(&self.db, &reto, &sql);
         let es_superado = val_res.is_valid;
-        let puntos_ganados = if es_superado { reto.puntos() } else { 0 };
 
         *self.intentos_por_reto.entry(reto.id.clone()).or_insert(0) += 1;
 
@@ -240,27 +226,20 @@ impl SimuladorState {
             timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
             tiempo_segundos: self.tiempo_total_segundos,
             superado: es_superado,
-            puntos_obtenidos: puntos_ganados,
             mensaje_error: if es_superado { None } else { Some(val_res.message.clone()) },
         });
 
         if es_superado {
-            let ya_estaba_superado = self.retos_superados.contains(&reto.id);
-            if !ya_estaba_superado {
+            if !self.retos_superados.contains(&reto.id) {
                 self.retos_superados.push(reto.id.clone());
             }
-            self.feedback_banner = Some((
+            self.status_feedback = Some((
                 true,
-                format!(
-                    "¡Correcta! (+{} pts) Consulta validada con éxito: {} filas comprobadas.",
-                    reto.puntos(),
-                    val_res.rows_matched
-                ),
+                format!("✅ ¡Consulta Correcta! {} filas comprobadas.", val_res.rows_matched),
             ));
         } else {
-            // Mostrar pista pedagógica automáticamente cuando la consulta es incorrecta
             self.mostrar_pistas = true;
-            self.feedback_banner = Some((false, format!("{}: {}", val_res.title, val_res.message)));
+            self.status_feedback = Some((false, format!("❌ {}: {}", val_res.title, val_res.message)));
         }
 
         self.validation_result = Some(val_res);
@@ -274,7 +253,6 @@ impl SimuladorState {
         if self.reto_actual_idx + 1 < self.retos.len() {
             self.seleccionar_reto(self.reto_actual_idx + 1);
         } else {
-            // Fin de todos los retos: mostrar informe final y bloquear nuevas respuestas
             self.finalizar_sesion(false);
         }
     }
@@ -288,18 +266,17 @@ impl SimuladorState {
             self.reto_actual_idx = idx;
             let reto = &self.retos[idx];
 
-            // NO SE REINICIA EL TIEMPO: el tiempo es global de 5 minutos
             self.query_result = None;
             self.validation_result = None;
+            self.status_feedback = None;
             self.mostrar_pistas = false;
 
             self.sql_buffer = format!("-- Reto {}: {}\nSELECT ", reto.id, reto.titulo);
-            self.feedback_banner = Some((
-                false,
-                format!("Reto {} cargado (Nivel {} · {} · {} pts).", reto.id, reto.nivel, reto.dificultad_label(), reto.puntos()),
-            ));
 
-            // Expandir la tabla correspondiente en el esquema
+            // Expandir únicamente la tabla correspondiente en el esquema si está disponible
+            for val in self.tablas_expandidas.values_mut() {
+                *val = false;
+            }
             if let Some(expand) = self.tablas_expandidas.get_mut(&reto.tabla) {
                 *expand = true;
             }
@@ -326,26 +303,24 @@ impl SimuladorState {
             self.tiempo_total_segundos += 1;
 
             if self.tiempo_restante_global == 0 {
-                // TIEMPO GLOBAL DE 5 MINUTOS AGOTADO: bloquear respuestas y mostrar informe final
                 self.finalizar_sesion(true);
             }
         }
     }
 
-    /// Exportar a CSV y JSON de forma 100% funcional y guardar las rutas
+    /// Exportar a CSV y JSON dentro de Documentos\BD_Hector_Nerea_Deborah\
     pub fn exportar_resultados(&mut self) {
         let resumen = SesionResumen {
             sesion_id: self.sesion_id.clone(),
             participante: self.participante_nombre.clone(),
             fecha_inicio: self.fecha_inicio.clone(),
             fecha_fin: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+            calificacion: self.calificacion_texto(),
             retos_completados: self.retos_superados.len(),
             retos_no_superados: self.retos_no_superados(),
             total_retos: self.retos.len(),
             total_intentos: self.historial_intentos.len(),
             errores_cometidos: self.errores_cometidos(),
-            puntos_obtenidos: self.puntos_actuales(),
-            puntos_totales_posibles: self.puntos_maximos(),
             tiempo_total_segundos: self.tiempo_total_segundos,
             tiempo_restante_global: self.tiempo_restante_global,
             intentos: self.historial_intentos.clone(),
@@ -353,21 +328,21 @@ impl SimuladorState {
 
         match Exporter::export_all(&resumen) {
             Ok((json_path, csv_path)) => {
-                let json_str = json_path.to_string_lossy().to_string();
-                let csv_str = csv_path.to_string_lossy().to_string();
-                self.ruta_export_json = Some(json_str);
-                self.ruta_export_csv = Some(csv_str);
+                self.ruta_export_json = Some(json_path.to_string_lossy().to_string());
+                self.ruta_export_csv = Some(csv_path.to_string_lossy().to_string());
                 self.mostrar_modal_exportacion = true;
             }
             Err(err) => {
-                self.feedback_banner = Some((false, format!("Error al exportar: {}", err)));
+                self.status_feedback = Some((false, format!("Error al exportar: {}", err)));
             }
         }
     }
 
-    /// Abrir la carpeta donde se han exportado los archivos
+    /// Abrir Documentos\BD_Hector_Nerea_Deborah\ en el Explorador de Windows
     pub fn abrir_carpeta_exportacion(&self) {
-        Exporter::abrir_carpeta_en_explorador(Path::new("exports"));
+        let dir = Exporter::get_export_dir();
+        let _ = fs::create_dir_all(&dir);
+        Exporter::abrir_carpeta_en_explorador(&dir);
     }
 
     /// Reiniciar partida limpia (conservando el nombre del alumno y volviendo a pantalla de inicio)

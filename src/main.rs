@@ -1,6 +1,8 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use gpui::prelude::*;
 use gpui::*;
-use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 mod app_state;
@@ -10,15 +12,20 @@ mod models;
 mod validator;
 
 use app_state::SimuladorState;
+use export::Exporter;
+
+const EMBEDDED_LOGO: &[u8] = include_bytes!("../logotipo.png");
 
 struct SimuladorApp {
     state: SimuladorState,
     focus_handle: FocusHandle,
+    logo_image: Arc<Image>,
 }
 
 impl SimuladorApp {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
+        let logo_image = Arc::new(Image::from_bytes(ImageFormat::Png, EMBEDDED_LOGO.to_vec()));
 
         // Lanzar temporizador global en segundo plano (1 tick por segundo)
         cx.spawn(async move |this, cx| {
@@ -38,6 +45,7 @@ impl SimuladorApp {
         Self {
             state: SimuladorState::new(),
             focus_handle,
+            logo_image,
         }
     }
 
@@ -129,22 +137,14 @@ impl SimuladorApp {
         }
     }
 
-    fn logo_path() -> &'static Path {
-        if Path::new("logotipo.png").exists() {
-            Path::new("logotipo.png")
-        } else {
-            Path::new("assets/logotipo.png")
-        }
-    }
-
-    /// Tabla reutilizable con desglose de los 5 niveles (colores, superados, puntos y estado)
+    /// Tabla reutilizable con desglose de los 5 niveles por categoría (sin puntos)
     fn render_level_breakdown_table(&self) -> Div {
-        let niveles: [(u8, &str, u32, u32); 5] = [
-            (1, "Selección y Proyección", 10, 0x10b981),
-            (2, "Filtrado con WHERE", 20, 0x06b6d4),
-            (3, "Ordenación y Límites", 30, 0x8b5cf6),
-            (4, "Resumen y Agregación", 40, 0xf59e0b),
-            (5, "Agrupación Avanzada (HAVING)", 50, 0xef4444),
+        let niveles: [(u8, &str, u32); 5] = [
+            (1, "Selección y Proyección", 0x10b981),
+            (2, "Filtrado con WHERE", 0x06b6d4),
+            (3, "Ordenación y Límites", 0x8b5cf6),
+            (4, "Resumen y Agregación", 0xf59e0b),
+            (5, "Agrupación Avanzada (HAVING)", 0xef4444),
         ];
 
         div()
@@ -164,13 +164,12 @@ impl SimuladorApp {
                     .text_xs()
                     .font_weight(FontWeight::BOLD)
                     .text_color(rgb(0x94a3b8))
-                    .child(div().w(px(75.0)).child("Nivel"))
+                    .child(div().w(px(80.0)).child("Nivel"))
                     .child(div().flex_1().child("Categoría"))
-                    .child(div().w(px(90.0)).child("Superados"))
-                    .child(div().w(px(80.0)).child("Puntos"))
-                    .child(div().w(px(95.0)).child("Estado")),
+                    .child(div().w(px(100.0)).child("Superados"))
+                    .child(div().w(px(110.0)).child("Estado")),
             )
-            .children(niveles.into_iter().enumerate().map(|(i, (lvl, nombre, pts_por_reto, color))| {
+            .children(niveles.into_iter().enumerate().map(|(i, (lvl, nombre, color))| {
                 let total_lvl = self.state.retos.iter().filter(|r| r.nivel == lvl).count();
                 let ok_lvl = self
                     .state
@@ -178,7 +177,6 @@ impl SimuladorApp {
                     .iter()
                     .filter(|r| r.nivel == lvl && self.state.retos_superados.contains(&r.id))
                     .count();
-                let pts_lvl = ok_lvl as u32 * pts_por_reto;
                 let row_bg = if i % 2 == 0 { rgb(0x131d31) } else { rgb(0x0f172a) };
 
                 div()
@@ -189,31 +187,29 @@ impl SimuladorApp {
                     .bg(row_bg)
                     .text_xs()
                     .text_color(rgb(color))
-                    .child(div().w(px(75.0)).font_weight(FontWeight::BOLD).child(format!("Nivel {}", lvl)))
+                    .child(div().w(px(80.0)).font_weight(FontWeight::BOLD).child(format!("Nivel {}", lvl)))
                     .child(div().flex_1().text_color(rgb(0xe2e8f0)).child(nombre))
-                    .child(div().w(px(90.0)).child(format!("{}/{}", ok_lvl, total_lvl)))
-                    .child(div().w(px(80.0)).font_weight(FontWeight::BOLD).child(format!("{} pts", pts_lvl)))
-                    .child(div().w(px(95.0)).child(if total_lvl > 0 && ok_lvl == total_lvl { "Completado" } else { "En curso" }))
+                    .child(div().w(px(100.0)).font_weight(FontWeight::BOLD).child(format!("{}/{}", ok_lvl, total_lvl)))
+                    .child(div().w(px(110.0)).child(if total_lvl > 0 && ok_lvl == total_lvl { "Completado" } else { "En curso" }))
             }))
     }
 
     /// Modal de confirmación de exportación funcional (reutilizado en sesión y pantalla final)
     fn render_export_modal(&self, cx: &mut Context<Self>) -> Div {
+        let fallback_dir = Exporter::get_export_dir();
         let json_path = self
             .state
             .ruta_export_json
             .clone()
-            .unwrap_or_else(|| "exports/resultados_sprint_sql.json".to_string());
+            .unwrap_or_else(|| fallback_dir.join("resultados.json").to_string_lossy().to_string());
         let csv_path = self
             .state
             .ruta_export_csv
             .clone()
-            .unwrap_or_else(|| "exports/resultados_sprint_sql.csv".to_string());
+            .unwrap_or_else(|| fallback_dir.join("resultados.csv").to_string_lossy().to_string());
         let aciertos = self.state.retos_superados.len();
         let total_retos = self.state.retos.len();
         let errores = self.state.errores_cometidos();
-        let puntos_actuales = self.state.puntos_actuales();
-        let puntos_maximos = self.state.puntos_maximos();
 
         div()
             .absolute()
@@ -224,7 +220,7 @@ impl SimuladorApp {
             .justify_center()
             .child(
                 div()
-                    .w(px(580.0))
+                    .w(px(620.0))
                     .p_6()
                     .rounded_xl()
                     .bg(rgb(0x0f172a))
@@ -290,18 +286,10 @@ impl SimuladorApp {
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(rgb(0xcbd5e1))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(0x10b981))
                                     .child(format!(
-                                        "• Puntuación conseguida: {} / {} pts",
-                                        puntos_actuales, puntos_maximos
-                                    )),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(rgb(0xcbd5e1))
-                                    .child(format!(
-                                        "• Retos superados: {} de {} (errores registrados: {})",
+                                        "• Resultado: {}/{} acertados (errores cometidos: {})",
                                         aciertos, total_retos, errores
                                     )),
                             )
@@ -395,7 +383,6 @@ impl SimuladorApp {
     /// 1. Pantalla de Inicio: título, instrucciones básicas, tiempo disponible y botón Comenzar
     fn render_start_screen(&self, cx: &mut Context<Self>) -> Div {
         let total_retos = self.state.retos.len();
-        let puntos_maximos = self.state.puntos_maximos();
 
         div()
             .flex()
@@ -432,7 +419,7 @@ impl SimuladorApp {
                                     .items_center()
                                     .gap_4()
                                     .child(
-                                        img(Self::logo_path())
+                                        img(self.logo_image.clone())
                                             .w(px(64.0))
                                             .h(px(53.0))
                                             .rounded_sm(),
@@ -501,33 +488,33 @@ impl SimuladorApp {
                                     .text_xs()
                                     .text_color(rgb(0xe2e8f0))
                                     .child(format!(
-                                        "1. El banco contiene {} retos SQL progresivos organizados en 5 niveles de dificultad (hasta {} puntos).",
-                                        total_retos, puntos_maximos
+                                        "1. El simulador incluye {} retos SQL progresivos agrupados en 5 categorías (evaluación directa por aciertos, ej. 28/30).",
+                                        total_retos
                                     )),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(rgb(0xe2e8f0))
-                                    .child("2. Introduce tu consulta SELECT directamente en el editor o mediante la paleta rápida y el esquema lateral."),
+                                    .child("2. Escribe tu consulta SELECT directamente en el editor o mediante la paleta rápida y el esquema lateral."),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(rgb(0xe2e8f0))
-                                    .child("3. Seguridad solo lectura: solo se admiten consultas SELECT únicas sobre davante_asir.db (visualización máxima de 50 filas)."),
+                                    .child("3. Seguridad solo lectura: solo se admiten consultas SELECT únicas sobre la base de datos educativa (máx. 50 filas visibles)."),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(rgb(0xe2e8f0))
-                                    .child("4. Pulsa 'Ejecutar y comprobar' (o Ctrl+Enter) para evaluar columnas, filas, tipos y valores, y recibir pistas si lo necesitas."),
+                                    .child("4. Pulsa 'Ejecutar y comprobar' (o Ctrl+Enter) para validar columnas, filas, tipos y valores, y ver pistas si falla."),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(rgb(0xe2e8f0))
-                                    .child("5. Dispones de 300 segundos globales. Al terminar o agotarse el tiempo podrás exportar tu informe en JSON y CSV."),
+                                    .child("5. Dispones de 300 segundos globales. Los resultados JSON/CSV se guardarán en Documentos\\BD_Hector_Nerea_Deborah\\."),
                             ),
                     )
                     // Tabla resumen de niveles
@@ -602,14 +589,12 @@ impl SimuladorApp {
             )
     }
 
-    /// 3. Pantalla Final: puntuación total, retos correctos/incorrectos, errores, tiempo empleado/restante y exportación
+    /// 3. Pantalla Final: calificación X/30, retos correctos/incorrectos, tiempo empleado/restante y exportación (sin puntos)
     fn render_final_screen(&self, cx: &mut Context<Self>) -> Div {
         let aciertos = self.state.retos_superados.len();
         let total_retos = self.state.retos.len();
         let incorrectos = self.state.retos_no_superados();
         let errores = self.state.errores_cometidos();
-        let puntos_actuales = self.state.puntos_actuales();
-        let puntos_maximos = self.state.puntos_maximos();
         let tiempo_emp_m = self.state.tiempo_total_segundos / 60;
         let tiempo_emp_s = self.state.tiempo_total_segundos % 60;
         let tiempo_res_m = self.state.tiempo_restante_global / 60;
@@ -649,7 +634,7 @@ impl SimuladorApp {
                                     .flex_row()
                                     .items_center()
                                     .gap_3()
-                                    .child(img(Self::logo_path()).w(px(52.0)).h(px(43.0)).rounded_sm())
+                                    .child(img(self.logo_image.clone()).w(px(52.0)).h(px(43.0)).rounded_sm())
                                     .child(
                                         div()
                                             .flex()
@@ -683,11 +668,11 @@ impl SimuladorApp {
                                     .rounded_lg()
                                     .bg(rgb(0x131d31))
                                     .border_1()
-                                    .border_color(rgb(0xfbbf24))
-                                    .text_base()
+                                    .border_color(rgb(0x10b981))
+                                    .text_lg()
                                     .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(0xfbbf24))
-                                    .child(format!("⭐ {} / {} PTS", puntos_actuales, puntos_maximos)),
+                                    .text_color(rgb(0x10b981))
+                                    .child(format!("✓ {}/{}", aciertos, total_retos)),
                             ),
                     )
                     // Tarjetas resumen exigidas: correctos, incorrectos, errores, tiempo empleado y restante
@@ -713,7 +698,7 @@ impl SimuladorApp {
                                             .text_lg()
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(rgb(0x10b981))
-                                            .child(format!("{} / {}", aciertos, total_retos)),
+                                            .child(format!("{}/{}", aciertos, total_retos)),
                                     ),
                             )
                             .child(
@@ -727,13 +712,13 @@ impl SimuladorApp {
                                     .flex()
                                     .flex_col()
                                     .gap_1()
-                                    .child(div().text_xs().text_color(rgb(0x94a3b8)).child("No superados / Errores"))
+                                    .child(div().text_xs().text_color(rgb(0x94a3b8)).child("No superados / Fallos"))
                                     .child(
                                         div()
                                             .text_lg()
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(rgb(0xef4444))
-                                            .child(format!("{} ({} fallos)", incorrectos, errores)),
+                                            .child(format!("{} ({} errores)", incorrectos, errores)),
                                     ),
                             )
                             .child(
@@ -777,7 +762,7 @@ impl SimuladorApp {
                                     ),
                             ),
                     )
-                    // Desglose de niveles y categorías
+                    // Desglose de categorías (sin puntos)
                     .child(self.render_level_breakdown_table())
                     // Botones finales de exportación y reinicio
                     .child(
@@ -865,8 +850,6 @@ impl Render for SimuladorApp {
         let aciertos = self.state.retos_superados.len();
         let intentos = self.state.historial_intentos.len();
         let errores = self.state.errores_cometidos();
-        let puntos_actuales = self.state.puntos_actuales();
-        let puntos_maximos = self.state.puntos_maximos();
 
         // Temporizador GLOBAL de 5 minutos
         let minutos = self.state.tiempo_restante_global / 60;
@@ -883,7 +866,7 @@ impl Render for SimuladorApp {
 
         root
             // =========================================================================
-            // 1. CABECERA PRINCIPAL CON LOGO, TIEMPO GLOBAL Y ACCIONES
+            // 1. CABECERA PRINCIPAL CON LOGO, TIEMPO GLOBAL Y ACCIONES (SIN PUNTOS)
             // =========================================================================
             .child(
                 div()
@@ -904,7 +887,7 @@ impl Render for SimuladorApp {
                             .items_center()
                             .gap_3()
                             .child(
-                                img(Self::logo_path())
+                                img(self.logo_image.clone())
                                     .w(px(46.0))
                                     .h(px(38.0))
                                     .rounded_sm(),
@@ -928,27 +911,13 @@ impl Render for SimuladorApp {
                                     ),
                             ),
                     )
-                    // Lado derecho: Puntos, Temporizador Global, Participante y Acciones
+                    // Lado derecho: Temporizador Global, Participante y Acciones (sin puntos)
                     .child(
                         div()
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap_3()
-                            // Puntuación acumulada
-                            .child(
-                                div()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_md()
-                                    .bg(rgb(0x1e293b))
-                                    .border_1()
-                                    .border_color(rgb(0x334155))
-                                    .text_xs()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(0xfbbf24))
-                                    .child(format!("⭐ {} / {} pts", puntos_actuales, puntos_maximos)),
-                            )
                             // Cronómetro Único Global (5 minutos)
                             .child(
                                 div()
@@ -1306,36 +1275,12 @@ impl Render for SimuladorApp {
                                             .justify_between()
                                             .child(
                                                 div()
-                                                    .flex()
-                                                    .flex_row()
-                                                    .items_center()
-                                                    .gap_3()
-                                                    .child(
-                                                        div()
-                                                            .text_lg()
-                                                            .font_weight(FontWeight::BOLD)
-                                                            .child(if let Some(ref r) = reto_actual {
-                                                                format!("{}: {}", r.id, r.titulo)
-                                                            } else {
-                                                                "Sin reto seleccionado".to_string()
-                                                            }),
-                                                    )
-                                                    // Badge con categoría y puntos coloreados
-                                                    .when_some(reto_actual.as_ref(), |this, r| {
-                                                        let col = rgb(r.color_hex());
-                                                        this.child(
-                                                            div()
-                                                                .px_2()
-                                                                .py_1()
-                                                                .rounded_md()
-                                                                .bg(rgb(0x0f172a))
-                                                                .border_1()
-                                                                .border_color(col)
-                                                                .text_xs()
-                                                                .font_weight(FontWeight::BOLD)
-                                                                .text_color(col)
-                                                                .child(format!("{} · {} PTS", r.dificultad_label(), r.puntos())),
-                                                        )
+                                                    .text_lg()
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .child(if let Some(ref r) = reto_actual {
+                                                        format!("{}: {}", r.id, r.titulo)
+                                                    } else {
+                                                        "Sin reto seleccionado".to_string()
                                                     }),
                                             )
                                             .child(
@@ -1509,41 +1454,19 @@ impl Render for SimuladorApp {
                                             )
                                             .child(
                                                 div()
-                                                    .flex()
-                                                    .flex_row()
-                                                    .gap_2()
-                                                    .child(
-                                                        div()
-                                                            .id("btn_clear_sql")
-                                                            .px_2()
-                                                            .py_1()
-                                                            .rounded_sm()
-                                                            .bg(rgb(0x334155))
-                                                            .text_xs()
-                                                            .cursor_pointer()
-                                                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                                                this.state.sql_buffer.clear();
-                                                                cx.notify();
-                                                            }))
-                                                            .child("Limpiar"),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .id("btn_canonical_solution")
-                                                            .px_2()
-                                                            .py_1()
-                                                            .rounded_sm()
-                                                            .bg(rgb(0x0284c7))
-                                                            .text_xs()
-                                                            .cursor_pointer()
-                                                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                                                if let Some(r) = this.state.reto_actual() {
-                                                                    this.state.sql_buffer = r.consulta_referencia.clone();
-                                                                    cx.notify();
-                                                                }
-                                                            }))
-                                                            .child("💡 Solución Canónica (Demo)"),
-                                                    ),
+                                                    .id("btn_clear_sql")
+                                                    .px_2()
+                                                    .py_1()
+                                                    .rounded_sm()
+                                                    .bg(rgb(0x334155))
+                                                    .text_xs()
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x475569)))
+                                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                                        this.state.sql_buffer.clear();
+                                                        cx.notify();
+                                                    }))
+                                                    .child("Limpiar"),
                                             ),
                                     )
                                     .child(
@@ -1605,27 +1528,7 @@ impl Render for SimuladorApp {
                                             }),
                                     ),
                             )
-                            // --- BANNER DE RETROALIMENTACIÓN ---
-                            .when_some(self.state.feedback_banner.clone(), |this, (es_exito, msg)| {
-                                let (bg_color, border_col, txt_col) = if es_exito {
-                                    (rgb(0x064e3b), rgb(0x059669), rgb(0x6ee7b7))
-                                } else {
-                                    (rgb(0x451a03), rgb(0xd97706), rgb(0xfde68a))
-                                };
-
-                                this.child(
-                                    div()
-                                        .p_3()
-                                        .rounded_md()
-                                        .bg(bg_color)
-                                        .border_1()
-                                        .border_color(border_col)
-                                        .text_sm()
-                                        .text_color(txt_col)
-                                        .child(msg),
-                                )
-                            })
-                            // --- TABLA DE RESULTADOS DE LA CONSULTA ---
+                            // --- TABLA Y ESTADO DE RESULTADOS DE LA CONSULTA ---
                             .child(
                                 div()
                                     .flex()
@@ -1633,7 +1536,11 @@ impl Render for SimuladorApp {
                                     .rounded_lg()
                                     .bg(rgb(0x0f172a))
                                     .border_1()
-                                    .border_color(rgb(0x1e293b))
+                                    .border_color(match &self.state.status_feedback {
+                                        Some((true, _)) => rgb(0x059669),
+                                        Some((false, _)) => rgb(0xd97706),
+                                        None => rgb(0x1e293b),
+                                    })
                                     .child(
                                         div()
                                             .flex()
@@ -1670,6 +1577,25 @@ impl Render for SimuladorApp {
                                                     }),
                                             ),
                                     )
+                                    .when_some(self.state.status_feedback.clone(), |this, (es_exito, msg)| {
+                                        let (bg_color, txt_col) = if es_exito {
+                                            (rgb(0x064e3b), rgb(0x6ee7b7))
+                                        } else {
+                                            (rgb(0x451a03), rgb(0xfde68a))
+                                        };
+                                        this.child(
+                                            div()
+                                                .px_3()
+                                                .py_2()
+                                                .bg(bg_color)
+                                                .border_b_1()
+                                                .border_color(rgb(0x1e293b))
+                                                .text_xs()
+                                                .font_weight(FontWeight::BOLD)
+                                                .text_color(txt_col)
+                                                .child(msg),
+                                        )
+                                    })
                                     .child(
                                         div()
                                             .id("result_table")
@@ -1739,7 +1665,7 @@ impl Render for SimuladorApp {
                             .bg(rgb(0x0f172a))
                             .border_l_1()
                             .border_color(rgb(0x1e293b))
-                            // Tarjeta de métricas con puntos y tiempo global
+                            // Tarjeta de métricas (solo aciertos/errores y tiempo global, sin puntos)
                             .child(
                                 div()
                                     .p_3()
@@ -1749,14 +1675,6 @@ impl Render for SimuladorApp {
                                     .flex_col()
                                     .gap_2()
                                     .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(rgb(0x94a3b8)).child("ESTADÍSTICAS SPRINT"))
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .justify_between()
-                                            .child(div().text_xs().text_color(rgb(0xcbd5e1)).child("Puntos totales:"))
-                                            .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(rgb(0xfbbf24)).child(format!("{} / {} pts", puntos_actuales, puntos_maximos))),
-                                    )
                                     .child(
                                         div()
                                             .flex()
@@ -2001,8 +1919,8 @@ impl Render for SimuladorApp {
                                                     div()
                                                         .text_sm()
                                                         .font_weight(FontWeight::BOLD)
-                                                        .text_color(rgb(0xfbbf24))
-                                                        .child(format!("PUNTUACIÓN TOTAL: {} / {} PTS", puntos_actuales, puntos_maximos)),
+                                                        .text_color(rgb(0x10b981))
+                                                        .child(format!("RESULTADO ACTUAL: {} / {}", aciertos, total_retos)),
                                                 ),
                                         )
                                         .child(

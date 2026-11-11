@@ -4995,6 +4995,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "csv",
+ "dirs 5.0.1",
  "gpui",
  "rusqlite",
  "serde",

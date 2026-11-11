@@ -6,22 +6,23 @@
 
 ---
 
-## 📋 Novedades y Actualizaciones Recientes
+## 📋 Características Principales
 
-1. **Logotipo Institucional:** Integrado de forma nativa en la cabecera de la aplicación desde `logotipo.png`.
-2. **Puntuación y Categorías por Dificultad (900 Puntos Totales):**
-   * **Nivel 1 (10 pts/reto · Verde Esmeralda):** Selección y Proyección básica.
-   * **Nivel 2 (20 pts/reto · Cian/Azul):** Filtrado condicional con `WHERE`.
-   * **Nivel 3 (30 pts/reto · Violeta):** Ordenación múltiple y límites con `ORDER BY` y `LIMIT`.
-   * **Nivel 4 (40 pts/reto · Ámbar/Naranja):** Resumen de datos y agregaciones (`COUNT`, `AVG`, `SUM`, `GROUP BY`).
-   * **Nivel 5 (50 pts/reto · Rojo Coral):** Agrupación avanzada y filtrado de grupos (`HAVING`).
-3. **Temporizador Global Único (5 Minutos):**
-   * Un único cronómetro de 5 minutos (300 segundos) para resolver todos los retos del sprint.
-   * No se reinicia al cambiar de ejercicio.
-4. **Enfoque Individual:** Eliminada la división por equipos para permitir evaluaciones individuales directas del alumno.
-5. **Exportación 100% Funcional:**
-   * Generación inmediata de `exports/resultados_sprint_sql.json` y `exports/resultados_sprint_sql.csv`.
-   * Modal interactivo que muestra las rutas de los archivos exportados y botón directo para abrir la carpeta en el Explorador de Windows.
+1. **Binario `.exe` Portable y Autónomo:**
+   * Tanto el logotipo (`logotipo.png`), el banco de retos (`assets/retos.json`) como la base de datos (`davante_asir.db`) quedan embebidos en el ejecutable final, permitiendo compartir únicamente el archivo `.exe`.
+2. **Evaluación Directa sobre 30 Retos y Categorías Colapsables (Sin Puntos):**
+   * Los 30 retos se agrupan en 5 categorías temáticas extensibles/contraíbles en la barra lateral (`X/6` por bloque) y evaluación global directa sobre 30 (`X/30`, p. ej. `28/30`).
+   * **Categoría 1 (Verde Esmeralda):** Selección y Proyección básica.
+   * **Categoría 2 (Cian/Azul):** Filtrado condicional con `WHERE`.
+   * **Categoría 3 (Violeta):** Ordenación múltiple y límites con `ORDER BY` y `LIMIT`.
+   * **Categoría 4 (Ámbar/Naranja):** Resumen de datos y agregaciones (`COUNT`, `AVG`, `SUM`, `GROUP BY`).
+   * **Categoría 5 (Rojo Coral):** Agrupación avanzada y filtrado de grupos (`HAVING`).
+3. **Temporizador Global Único (5 Minutos) y Control de Sesión:**
+   * Pantalla de inicio con instrucciones básicas antes de iniciar la cuenta atrás de 300 segundos.
+   * Bloqueo automático e informe final al agotarse el tiempo o pulsar Finalizar.
+4. **Enfoque Individual:** Evaluación directa del alumno con nombre editable al inicio.
+5. **Exportación en `Documentos\BD_Hector_Nerea_Deborah\`:**
+   * Generación automática de informes en JSON y CSV dentro de `Documentos\BD_Hector_Nerea_Deborah\` con botón para abrir la carpeta en el Explorador de Windows.
 
 ---
 

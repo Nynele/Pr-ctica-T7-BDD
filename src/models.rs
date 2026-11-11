@@ -14,18 +14,6 @@ pub struct Reto {
 }
 
 impl Reto {
-    /// Puntos asignados según el nivel de dificultad
-    pub fn puntos(&self) -> u32 {
-        match self.nivel {
-            1 => 10,
-            2 => 20,
-            3 => 30,
-            4 => 40,
-            5 => 50,
-            _ => 10,
-        }
-    }
-
     /// Categoría temática oficial según el temario ASIR
     pub fn categoria(&self) -> &'static str {
         match self.nivel {
@@ -35,18 +23,6 @@ impl Reto {
             4 => "Resumen y Agregación",
             5 => "Agrupación Avanzada (HAVING)",
             _ => "General",
-        }
-    }
-
-    /// Etiqueta descriptiva de dificultad
-    pub fn dificultad_label(&self) -> &'static str {
-        match self.nivel {
-            1 => "BÁSICO",
-            2 => "FÁCIL",
-            3 => "INTERMEDIO",
-            4 => "AVANZADO",
-            5 => "EXPERTO",
-            _ => "NORMAL",
         }
     }
 
@@ -99,7 +75,6 @@ pub struct IntentoRegistro {
     pub timestamp: String,
     pub tiempo_segundos: u64,
     pub superado: bool,
-    pub puntos_obtenidos: u32,
     pub mensaje_error: Option<String>,
 }
 
@@ -109,13 +84,12 @@ pub struct SesionResumen {
     pub participante: String,
     pub fecha_inicio: String,
     pub fecha_fin: Option<String>,
+    pub calificacion: String,
     pub retos_completados: usize,
     pub retos_no_superados: usize,
     pub total_retos: usize,
     pub total_intentos: usize,
     pub errores_cometidos: usize,
-    pub puntos_obtenidos: u32,
-    pub puntos_totales_posibles: u32,
     pub tiempo_total_segundos: u64,
     pub tiempo_restante_global: u32,
     pub intentos: Vec<IntentoRegistro>,

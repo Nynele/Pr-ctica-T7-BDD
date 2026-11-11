@@ -138,14 +138,14 @@
   {
     "id": "Q11",
     "nivel": 2,
-    "titulo": "Títulos de proyecto",
-    "peticion": "Mostrar las actividades cuyo título empiece por \"Proyecto\".",
-    "tabla": "actividades_evaluables",
+    "titulo": "Módulos de Sistemas",
+    "peticion": "Mostrar las ofertas formativas cuyo módulo empiece por \"Sistemas\".",
+    "tabla": "ofertas_formativas",
     "elementos_sql": "LIKE",
-    "consulta_referencia": "SELECT * FROM actividades_evaluables WHERE titulo LIKE 'Proyecto%';",
+    "consulta_referencia": "SELECT * FROM ofertas_formativas WHERE modulo LIKE 'Sistemas%';",
     "requiere_orden": false,
     "pistas": [
-      "Usa el comodín '%' con el operador LIKE: 'WHERE titulo LIKE \\'Proyecto%\\''."
+      "Usa el comodín '%' con el operador LIKE: 'WHERE modulo LIKE \\'Sistemas%\\''."
     ]
   },
   {
@@ -191,13 +191,13 @@
     "id": "Q15",
     "nivel": 3,
     "titulo": "Orden múltiple",
-    "peticion": "Ordenar las actividades por fecha descendente y título ascendente.",
-    "tabla": "actividades_evaluables",
+    "peticion": "Ordenar los docentes por especialidad descendente y nombre ascendente.",
+    "tabla": "docentes",
     "elementos_sql": "ORDER BY múltiple",
-    "consulta_referencia": "SELECT * FROM actividades_evaluables ORDER BY fecha DESC, titulo ASC;",
+    "consulta_referencia": "SELECT * FROM docentes ORDER BY especialidad DESC, nombre ASC;",
     "requiere_orden": true,
     "pistas": [
-      "Usa 'ORDER BY fecha DESC, titulo ASC'."
+      "Usa 'ORDER BY especialidad DESC, nombre ASC'."
     ]
   },
   {
