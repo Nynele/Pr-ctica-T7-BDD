@@ -201,12 +201,12 @@ impl SimuladorApp {
             .state
             .ruta_export_json
             .clone()
-            .unwrap_or_else(|| fallback_dir.join("resultados.json").to_string_lossy().to_string());
+            .unwrap_or_else(|| Exporter::json_path_in_dir(&fallback_dir).to_string_lossy().to_string());
         let csv_path = self
             .state
             .ruta_export_csv
             .clone()
-            .unwrap_or_else(|| fallback_dir.join("resultados.csv").to_string_lossy().to_string());
+            .unwrap_or_else(|| Exporter::csv_path_in_dir(&fallback_dir).to_string_lossy().to_string());
         let aciertos = self.state.retos_superados.len();
         let total_retos = self.state.retos.len();
         let errores = self.state.errores_cometidos();
@@ -298,11 +298,11 @@ impl SimuladorApp {
                                     .text_xs()
                                     .text_color(rgb(0xcbd5e1))
                                     .child(format!(
-                                        "• Tiempo empleado: {:02}:{:02} (restante: {:02}:{:02})",
+                                        "• Tiempo total empleado: {:02}:{:02} · Queries agotadas: {}/{}",
                                         self.state.tiempo_total_segundos / 60,
                                         self.state.tiempo_total_segundos % 60,
-                                        self.state.tiempo_restante_global / 60,
-                                        self.state.tiempo_restante_global % 60
+                                        self.state.retos_con_tiempo_agotado(),
+                                        total_retos
                                     )),
                             ),
                     )
@@ -316,7 +316,7 @@ impl SimuladorApp {
                                     .text_xs()
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(0x94a3b8))
-                                    .child("ARCHIVOS GENERADOS:"),
+                                    .child("ARCHIVOS ÚNICOS DE RESULTADOS (resultados_partidas.json y resultados_partidas.csv):"),
                             )
                             .child(
                                 div()
@@ -375,6 +375,325 @@ impl SimuladorApp {
                                         cx.notify();
                                     }))
                                     .child("Cerrar"),
+                            ),
+                    ),
+            )
+    }
+
+    /// Modal de Clasificación de Participantes (ranking por puntuación, tiempo y errores)
+    fn render_ranking_modal(&self, cx: &mut Context<Self>) -> Div {
+        let aciertos = self.state.retos_superados.len();
+        let total_retos = self.state.retos.len();
+        let errores = self.state.errores_cometidos();
+        let tiempo_actual_m = self.state.tiempo_total_segundos / 60;
+        let tiempo_actual_s = self.state.tiempo_total_segundos % 60;
+        let ranking = &self.state.ranking;
+
+        div()
+            .absolute()
+            .size_full()
+            .bg(rgba(0x000000d0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .w(px(760.0))
+                    .p_6()
+                    .rounded_xl()
+                    .bg(rgb(0x0f172a))
+                    .border_1()
+                    .border_color(rgb(0x334155))
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(div().text_lg().child("🏆"))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .child(
+                                                div()
+                                                    .text_base()
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .child("Clasificación de Participantes"),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(rgb(0x94a3b8))
+                                                    .child("Ordenado por puntuación (desc.), menor tiempo y menos errores"),
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .id("btn_refrescar_ranking_top")
+                                            .px_3()
+                                            .py_1()
+                                            .rounded_md()
+                                            .bg(rgb(0x1e293b))
+                                            .text_xs()
+                                            .text_color(rgb(0x38bdf8))
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(rgb(0x334155)))
+                                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                                this.state.recargar_ranking();
+                                                cx.notify();
+                                            }))
+                                            .child("↻ Actualizar"),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("modal_close")
+                                            .px_2()
+                                            .py_1()
+                                            .cursor_pointer()
+                                            .text_sm()
+                                            .text_color(rgb(0x94a3b8))
+                                            .hover(|s| s.text_color(rgb(0xf8fafc)))
+                                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                                this.state.mostrar_modal_ranking = false;
+                                                cx.notify();
+                                            }))
+                                            .child("✕"),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .rounded_lg()
+                            .overflow_hidden()
+                            .border_1()
+                            .border_color(rgb(0x1e293b))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .p_2()
+                                    .bg(rgb(0x1e293b))
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(0x94a3b8))
+                                    .child(div().w(px(64.0)).child("Pos."))
+                                    .child(div().flex_1().child("Participante"))
+                                    .child(div().w(px(95.0)).child("Puntuación"))
+                                    .child(div().w(px(80.0)).child("Tiempo"))
+                                    .child(div().w(px(75.0)).child("Errores"))
+                                    .child(div().w(px(140.0)).child("Fecha")),
+                            )
+                            .child(
+                                div()
+                                    .id("ranking_scroll_list")
+                                    .flex()
+                                    .flex_col()
+                                    .max_h(px(330.0))
+                                    .overflow_y_scroll()
+                                    .when(ranking.is_empty(), |this| {
+                                        this.child(
+                                            div()
+                                                .p_4()
+                                                .text_xs()
+                                                .text_color(rgb(0x94a3b8))
+                                                .child("No hay partidas registradas todavía."),
+                                        )
+                                    })
+                                    .children(ranking.iter().enumerate().map(|(i, entry)| {
+                                        let es_actual = entry.sesion_id == self.state.sesion_id;
+                                        let row_bg = if es_actual {
+                                            rgb(0x172554)
+                                        } else if i % 2 == 0 {
+                                            rgb(0x131d31)
+                                        } else {
+                                            rgb(0x0f172a)
+                                        };
+                                        let pos_texto = match entry.posicion {
+                                            1 => "🥇 #1".to_string(),
+                                            2 => "🥈 #2".to_string(),
+                                            3 => "🥉 #3".to_string(),
+                                            p => format!("#{}", p),
+                                        };
+                                        let pos_color = match entry.posicion {
+                                            1 => rgb(0xfbbf24),
+                                            2 => rgb(0xe2e8f0),
+                                            3 => rgb(0xf59e0b),
+                                            _ => rgb(0x94a3b8),
+                                        };
+                                        let tiempo_texto = format!(
+                                            "{:02}:{:02}",
+                                            entry.tiempo_total_segundos / 60,
+                                            entry.tiempo_total_segundos % 60
+                                        );
+                                        let participante_label = if es_actual {
+                                            format!("{} (Sesión actual)", entry.participante)
+                                        } else {
+                                            entry.participante.clone()
+                                        };
+
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .p_2()
+                                            .bg(row_bg)
+                                            .border_b_1()
+                                            .border_color(rgb(0x1e293b))
+                                            .text_xs()
+                                            .child(
+                                                div()
+                                                    .w(px(64.0))
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .text_color(pos_color)
+                                                    .child(pos_texto),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .font_weight(if es_actual {
+                                                        FontWeight::BOLD
+                                                    } else {
+                                                        FontWeight::MEDIUM
+                                                    })
+                                                    .text_color(if es_actual {
+                                                        rgb(0x38bdf8)
+                                                    } else {
+                                                        rgb(0xe2e8f0)
+                                                    })
+                                                    .child(participante_label),
+                                            )
+                                            .child(
+                                                div()
+                                                    .w(px(95.0))
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .text_color(rgb(0x10b981))
+                                                    .child(format!(
+                                                        "{}/{}",
+                                                        entry.retos_completados, entry.total_retos
+                                                    )),
+                                            )
+                                            .child(
+                                                div()
+                                                    .w(px(80.0))
+                                                    .text_color(rgb(0x67e8f9))
+                                                    .child(tiempo_texto),
+                                            )
+                                            .child(
+                                                div()
+                                                    .w(px(75.0))
+                                                    .text_color(if entry.errores_cometidos == 0 {
+                                                        rgb(0x10b981)
+                                                    } else {
+                                                        rgb(0xfca5a5)
+                                                    })
+                                                    .child(format!("{}", entry.errores_cometidos)),
+                                            )
+                                            .child(
+                                                div()
+                                                    .w(px(140.0))
+                                                    .text_color(rgb(0x94a3b8))
+                                                    .child(entry.fecha.clone()),
+                                            )
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .p_3()
+                            .rounded_md()
+                            .bg(rgb(0x1e293b))
+                            .flex()
+                            .flex_row()
+                            .justify_between()
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(0x94a3b8))
+                                            .child(format!(
+                                                "Tu sesión (#{}): {} · Tiempo: {:02}:{:02} · Errores: {}",
+                                                self.state.sesion_id,
+                                                self.state.participante_nombre,
+                                                tiempo_actual_m,
+                                                tiempo_actual_s,
+                                                errores
+                                            )),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgb(0x10b981))
+                                            .child(format!(
+                                                "PUNTUACIÓN EN CURSO: {}/{}",
+                                                aciertos, total_retos
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .id("modal_export")
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(rgb(0x059669))
+                                            .text_xs()
+                                            .font_weight(FontWeight::BOLD)
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(rgb(0x10b981)))
+                                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                                this.state.exportar_resultados();
+                                                cx.notify();
+                                            }))
+                                            .child("💾 Guardar y Exportar"),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("btn_cerrar_ranking_footer")
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(rgb(0x334155))
+                                            .text_xs()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(rgb(0x475569)))
+                                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                                this.state.mostrar_modal_ranking = false;
+                                                cx.notify();
+                                            }))
+                                            .child("Cerrar"),
+                                    ),
                             ),
                     ),
             )
@@ -467,7 +786,7 @@ impl SimuladorApp {
                                             .text_base()
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(rgb(0x38bdf8))
-                                            .child("⏱ 05:00 (300 s)"),
+                                            .child("⏱ 05:00 / query"),
                                     ),
                             ),
                     )
@@ -520,7 +839,7 @@ impl SimuladorApp {
                                 div()
                                     .text_xs()
                                     .text_color(rgb(0xe2e8f0))
-                                    .child("5. Dispones de 300 segundos globales. Los resultados JSON/CSV se guardarán en Documentos\\BD_Hector_Nerea_Deborah\\."),
+                                    .child("5. Dispones de 5 minutos (300 segundos) para cada consulta. Si se agota el tiempo de un reto, podrás seguir con los demás. Los resultados JSON/CSV se guardarán en Documentos\\BD_Hector_Nerea_Deborah\\."),
                             ),
                     )
                     // Tabla resumen de niveles
@@ -589,13 +908,13 @@ impl SimuladorApp {
                                         this.state.iniciar_sesion();
                                         cx.notify();
                                     }))
-                                    .child("▶ Comenzar Sesión (Iniciar 05:00)"),
+                                    .child("▶ Comenzar Sesión (05:00 / query)"),
                             ),
                     ),
             )
     }
 
-    /// 3. Pantalla Final: calificación X/30, retos correctos/incorrectos, tiempo empleado/restante y exportación (sin puntos)
+    /// 3. Pantalla Final: calificación X/30, retos correctos/incorrectos, tiempo empleado y queries agotadas (sin puntos)
     fn render_final_screen(&self, cx: &mut Context<Self>) -> Div {
         let aciertos = self.state.retos_superados.len();
         let total_retos = self.state.retos.len();
@@ -603,9 +922,7 @@ impl SimuladorApp {
         let errores = self.state.errores_cometidos();
         let tiempo_emp_m = self.state.tiempo_total_segundos / 60;
         let tiempo_emp_s = self.state.tiempo_total_segundos % 60;
-        let tiempo_res_m = self.state.tiempo_restante_global / 60;
-        let tiempo_res_s = self.state.tiempo_restante_global % 60;
-        let por_tiempo = self.state.tiempo_restante_global == 0;
+        let agotados = self.state.retos_con_tiempo_agotado();
 
         div()
             .flex()
@@ -621,7 +938,7 @@ impl SimuladorApp {
                     .rounded_xl()
                     .bg(rgb(0x0f172a))
                     .border_1()
-                    .border_color(if por_tiempo { rgb(0xf59e0b) } else { rgb(0x10b981) })
+                    .border_color(rgb(0x10b981))
                     .flex()
                     .flex_col()
                     .gap_5()
@@ -649,12 +966,8 @@ impl SimuladorApp {
                                                 div()
                                                     .text_xs()
                                                     .font_weight(FontWeight::BOLD)
-                                                    .text_color(if por_tiempo { rgb(0xf59e0b) } else { rgb(0x10b981) })
-                                                    .child(if por_tiempo {
-                                                        "⏱ TIEMPO GLOBAL AGOTADO · RESPUESTAS BLOQUEADAS"
-                                                    } else {
-                                                        "🏁 INFORME FINAL DE LA SESIÓN · RESPUESTAS BLOQUEADAS"
-                                                    }),
+                                                    .text_color(rgb(0x10b981))
+                                                    .child("🏁 INFORME FINAL DE LA SESIÓN · RESPUESTAS BLOQUEADAS"),
                                             )
                                             .child(
                                                 div()
@@ -764,13 +1077,13 @@ impl SimuladorApp {
                                     .flex()
                                     .flex_col()
                                     .gap_1()
-                                    .child(div().text_xs().text_color(rgb(0x94a3b8)).child("Tiempo restante"))
+                                    .child(div().text_xs().text_color(rgb(0x94a3b8)).child("Queries agotadas (05:00)"))
                                     .child(
                                         div()
                                             .text_lg()
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(rgb(0xa78bfa))
-                                            .child(format!("{:02}:{:02}", tiempo_res_m, tiempo_res_s)),
+                                            .child(format!("{}/{}", agotados, total_retos)),
                                     ),
                             ),
                     )
@@ -806,6 +1119,24 @@ impl SimuladorApp {
                                     .flex()
                                     .flex_row()
                                     .gap_3()
+                                    .child(
+                                        div()
+                                            .id("btn_ranking_final")
+                                            .px_4()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(rgb(0x0369a1))
+                                            .text_sm()
+                                            .font_weight(FontWeight::BOLD)
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(rgb(0x0284c7)))
+                                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                                this.state.recargar_ranking();
+                                                this.state.mostrar_modal_ranking = true;
+                                                cx.notify();
+                                            }))
+                                            .child("🏆 Ver Clasificación"),
+                                    )
                                     .child(
                                         div()
                                             .id("btn_export_final")
@@ -851,6 +1182,9 @@ impl Render for SimuladorApp {
         if self.state.sesion_finalizada {
             return root
                 .child(self.render_final_screen(cx))
+                .when(self.state.mostrar_modal_ranking, |this| {
+                    this.child(self.render_ranking_modal(cx))
+                })
                 .when(self.state.mostrar_modal_exportacion, |this| {
                     this.child(self.render_export_modal(cx))
                 });
@@ -863,14 +1197,16 @@ impl Render for SimuladorApp {
         let intentos = self.state.historial_intentos.len();
         let errores = self.state.errores_cometidos();
 
-        // Temporizador GLOBAL de 5 minutos
-        let minutos = self.state.tiempo_restante_global / 60;
-        let segundos = self.state.tiempo_restante_global % 60;
-        let timer_color = if self.state.tiempo_restante_global == 0 {
-            rgb(0xef4444) // Rojo fin
-        } else if self.state.tiempo_restante_global <= 30 {
+        // Temporizador por reto/query (5 minutos = 300 segundos)
+        let tiempo_reto = self.state.tiempo_restante_reto_actual();
+        let reto_agotado = self.state.reto_actual_tiempo_agotado();
+        let minutos = tiempo_reto / 60;
+        let segundos = tiempo_reto % 60;
+        let timer_color = if reto_agotado {
+            rgb(0xef4444) // Rojo fin / agotado
+        } else if tiempo_reto <= 30 {
             rgb(0xef4444) // Rojo alerta
-        } else if self.state.tiempo_restante_global <= 60 {
+        } else if tiempo_reto <= 60 {
             rgb(0xf59e0b) // Amarillo aviso
         } else {
             rgb(0x38bdf8) // Azul normal
@@ -936,19 +1272,19 @@ impl Render for SimuladorApp {
                             .flex_row()
                             .items_center()
                             .gap_3()
-                            // Cronómetro Único Global (5 minutos)
+                            // Cronómetro del reto actual (5 minutos por query)
                             .child(
                                 div()
                                     .px_3()
                                     .py_1()
                                     .rounded_md()
-                                    .bg(rgb(0x1e293b))
+                                    .bg(if reto_agotado { rgb(0x450a0a) } else { rgb(0x1e293b) })
                                     .border_1()
                                     .border_color(timer_color)
                                     .text_xs()
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(timer_color)
-                                    .child(format!("⏱ Global: {:02}:{:02}", minutos, segundos)),
+                                    .child(format!("⏱ Query: {:02}:{:02}", minutos, segundos)),
                             )
                             // Identificación del alumno (sin equipos)
                             .child(
@@ -974,6 +1310,9 @@ impl Render for SimuladorApp {
                                     .hover(|s| s.bg(rgb(0x0284c7)))
                                     .on_click(cx.listener(|this, _event, _window, cx| {
                                         this.state.mostrar_modal_ranking = !this.state.mostrar_modal_ranking;
+                                        if this.state.mostrar_modal_ranking {
+                                            this.state.recargar_ranking();
+                                        }
                                         cx.notify();
                                     }))
                                     .child("🏆 Clasificación"),
@@ -1178,6 +1517,7 @@ impl Render for SimuladorApp {
                                                         .children(cat_retos.into_iter().map(|(idx, r)| {
                                                             let is_selected = idx == actual_idx;
                                                             let is_solved = self.state.retos_superados.contains(&r.id);
+                                                            let is_expired = !is_solved && self.state.reto_tiempo_agotado(&r.id);
 
                                                             let bg_color = if is_selected {
                                                                 rgb(0x1e293b)
@@ -1187,6 +1527,8 @@ impl Render for SimuladorApp {
 
                                                             let icon = if is_solved {
                                                                 "✓ "
+                                                            } else if is_expired {
+                                                                "⏱0 "
                                                             } else if is_selected {
                                                                 "▶ "
                                                             } else {
@@ -1195,6 +1537,8 @@ impl Render for SimuladorApp {
 
                                                             let icon_color = if is_solved {
                                                                 rgb(0x10b981)
+                                                            } else if is_expired {
+                                                                rgb(0xef4444)
                                                             } else if is_selected {
                                                                 rgb(0x38bdf8)
                                                             } else {
@@ -1205,6 +1549,8 @@ impl Render for SimuladorApp {
                                                                 rgb(0xf8fafc)
                                                             } else if is_solved {
                                                                 rgb(0xcbd5e1)
+                                                            } else if is_expired {
+                                                                rgb(0xfca5a5)
                                                             } else {
                                                                 rgb(0x94a3b8)
                                                             };
@@ -1313,19 +1659,23 @@ impl Render for SimuladorApp {
                                                             .text_color(rgb(0x94a3b8))
                                                             .child(format!("Reto {} de {}", actual_idx + 1, total_retos)),
                                                     )
-                                                    // Tiempo Global Restante
+                                                    // Tiempo Restante de la Query Actual
                                                     .child(
                                                         div()
                                                             .px_3()
                                                             .py_1()
                                                             .rounded_md()
-                                                            .bg(rgb(0x1e293b))
+                                                            .bg(if reto_agotado { rgb(0x450a0a) } else { rgb(0x1e293b) })
                                                             .border_1()
                                                             .border_color(timer_color)
                                                             .text_sm()
                                                             .font_weight(FontWeight::BOLD)
                                                             .text_color(timer_color)
-                                                            .child(format!("⏱ {:02}:{:02} global", minutos, segundos)),
+                                                            .child(if reto_agotado {
+                                                                "⏱ 00:00 · Agotado".to_string()
+                                                            } else {
+                                                                format!("⏱ {:02}:{:02} query", minutos, segundos)
+                                                            }),
                                                     ),
                                             ),
                                     )
@@ -1513,16 +1863,22 @@ impl Render for SimuladorApp {
                                             .px_4()
                                             .py_2()
                                             .rounded_md()
-                                            .bg(rgb(0x2563eb))
+                                            .bg(if reto_agotado { rgb(0x334155) } else { rgb(0x2563eb) })
                                             .text_sm()
                                             .font_weight(FontWeight::BOLD)
-                                            .cursor_pointer()
-                                            .hover(|s| s.bg(rgb(0x1d4ed8)))
+                                            .text_color(if reto_agotado { rgb(0x94a3b8) } else { rgb(0xf8fafc) })
+                                            .when(!reto_agotado, |btn| {
+                                                btn.cursor_pointer().hover(|s| s.bg(rgb(0x1d4ed8)))
+                                            })
                                             .on_click(cx.listener(|this, _event, _window, cx| {
                                                 this.state.ejecutar_y_comprobar();
                                                 cx.notify();
                                             }))
-                                            .child("▶ Ejecutar y comprobar"),
+                                            .child(if reto_agotado {
+                                                "⏱ Tiempo agotado (bloqueado)"
+                                            } else {
+                                                "▶ Ejecutar y comprobar"
+                                            }),
                                     )
                                     .child(
                                         div()
@@ -1714,7 +2070,7 @@ impl Render for SimuladorApp {
                                             .flex()
                                             .flex_row()
                                             .justify_between()
-                                            .child(div().text_xs().text_color(rgb(0xcbd5e1)).child("Tiempo restante (global):"))
+                                            .child(div().text_xs().text_color(rgb(0xcbd5e1)).child("Tiempo query actual:"))
                                             .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(timer_color).child(format!("{:02}:{:02}", minutos, segundos))),
                                     )
                                     .child(
@@ -1722,7 +2078,7 @@ impl Render for SimuladorApp {
                                             .flex()
                                             .flex_row()
                                             .justify_between()
-                                            .child(div().text_xs().text_color(rgb(0xcbd5e1)).child("Tiempo total empleado:"))
+                                            .child(div().text_xs().text_color(rgb(0xcbd5e1)).child("Tiempo total sesión:"))
                                             .child(div().text_xs().font_weight(FontWeight::BOLD).child(format!("{:02}:{:02}", self.state.tiempo_total_segundos / 60, self.state.tiempo_total_segundos % 60))),
                                     )
                                     .child(
@@ -1740,7 +2096,7 @@ impl Render for SimuladorApp {
                                                 this.state.reiniciar_partida();
                                                 cx.notify();
                                             }))
-                                            .child("↺ Reiniciar Partida (5 min nuevos)"),
+                                            .child("↺ Reiniciar Partida"),
                                     ),
                             )
                             // Árbol del esquema de la base de datos
@@ -1860,113 +2216,10 @@ impl Render for SimuladorApp {
                     ),
             )
             // =========================================================================
-            // 3. MODAL CLASIFICACIÓN / PUNTUACIÓN POR CATEGORÍAS (SIN EQUIPOS)
+            // 3. MODAL CLASIFICACIÓN DE PARTICIPANTES (RANKING GLOBAL)
             // =========================================================================
             .when(self.state.mostrar_modal_ranking, |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .size_full()
-                        .bg(rgba(0x000000d0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            div()
-                                .w(px(620.0))
-                                .p_6()
-                                .rounded_xl()
-                                .bg(rgb(0x0f172a))
-                                .border_1()
-                                .border_color(rgb(0x334155))
-                                .flex()
-                                .flex_col()
-                                .gap_4()
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .justify_between()
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .items_center()
-                                                .gap_2()
-                                                .child(div().text_lg().child("🏆"))
-                                                .child(div().text_base().font_weight(FontWeight::BOLD).child("Resultados y Desempeño por Categorías")),
-                                        )
-                                        .child(
-                                            div()
-                                                .id("modal_close")
-                                                .cursor_pointer()
-                                                .text_sm()
-                                                .text_color(rgb(0x94a3b8))
-                                                .on_click(cx.listener(|this, _event, _window, cx| {
-                                                    this.state.mostrar_modal_ranking = false;
-                                                    cx.notify();
-                                                }))
-                                                .child("✕"),
-                                        ),
-                                )
-                                .child(self.render_level_breakdown_table())
-                                .child(
-                                    div()
-                                        .p_3()
-                                        .rounded_md()
-                                        .bg(rgb(0x1e293b))
-                                        .flex()
-                                        .flex_row()
-                                        .justify_between()
-                                        .items_center()
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_col()
-                                                .child(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(rgb(0x94a3b8))
-                                                        .child(format!(
-                                                            "Participante: {} · Aciertos: {}/{} · Errores: {}",
-                                                            self.state.participante_nombre, aciertos, total_retos, errores
-                                                        )),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .font_weight(FontWeight::BOLD)
-                                                        .text_color(rgb(0x10b981))
-                                                        .child(format!("RESULTADO ACTUAL: {} / {}", aciertos, total_retos)),
-                                                ),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .gap_2()
-                                                .child(
-                                                    div()
-                                                        .id("modal_export")
-                                                        .px_4()
-                                                        .py_2()
-                                                        .rounded_md()
-                                                        .bg(rgb(0x059669))
-                                                        .text_xs()
-                                                        .font_weight(FontWeight::BOLD)
-                                                        .cursor_pointer()
-                                                        .hover(|s| s.bg(rgb(0x10b981)))
-                                                        .on_click(cx.listener(|this, _event, _window, cx| {
-                                                            this.state.exportar_resultados();
-                                                            cx.notify();
-                                                        }))
-                                                        .child("💾 Exportar CSV y JSON"),
-                                                ),
-                                        ),
-                                ),
-                        ),
-                )
+                this.child(self.render_ranking_modal(cx))
             })
             // =========================================================================
             // 4. MODAL DE CONFIRMACIÓN DE EXPORTACIÓN (REUTILIZADO)

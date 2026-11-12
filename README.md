@@ -17,12 +17,11 @@
    * **Categoría 3 (Violeta):** Ordenación múltiple y límites con `ORDER BY` y `LIMIT`.
    * **Categoría 4 (Ámbar/Naranja):** Resumen de datos y agregaciones (`COUNT`, `AVG`, `SUM`, `GROUP BY`).
    * **Categoría 5 (Rojo Coral):** Agrupación avanzada y filtrado de grupos (`HAVING`).
-3. **Temporizador Global Único (5 Minutos) y Control de Sesión:**
-   * Pantalla de inicio con instrucciones básicas antes de iniciar la cuenta atrás de 300 segundos.
-   * Bloqueo automático e informe final al agotarse el tiempo o pulsar Finalizar.
-4. **Enfoque Individual:** Evaluación directa del alumno con nombre editable al inicio.
-5. **Exportación en `Documentos\BD_Hector_Nerea_Deborah\`:**
-   * Generación automática de informes en JSON y CSV dentro de `Documentos\BD_Hector_Nerea_Deborah\` con botón para abrir la carpeta en el Explorador de Windows.
+3. **Temporizador por Consulta (5 Minutos por Query) y Control de Sesión:**
+   * Cada reto dispone de un temporizador individual de 300 segundos (5:00). Al agotarse el tiempo de una consulta específica, se bloquea únicamente dicho reto, permitiendo continuar con el resto sin perder el progreso de la partida.
+4. **Enfoque Individual y Clasificación:** Evaluación directa del alumno con nombre editable al inicio y tabla de clasificación de participantes ordenada por aciertos, tiempo y menor número de errores.
+5. **Archivos Únicos de Exportación en `Documentos\BD_Hector_Nerea_Deborah\`:**
+   * Almacenamiento acumulativo de las partidas en un único archivo JSON (`resultados_partidas.json`) y un único CSV (`resultados_partidas.csv`), con botón directo para abrir la carpeta en el Explorador de Windows.
 
 ---
 

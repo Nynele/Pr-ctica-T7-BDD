@@ -1,4 +1,11 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+pub const TIEMPO_LIMITE_POR_RETO_SEGS: u32 = 300;
+
+fn default_tiempo_limite_por_reto() -> u32 {
+    TIEMPO_LIMITE_POR_RETO_SEGS
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Reto {
@@ -91,8 +98,24 @@ pub struct SesionResumen {
     pub total_intentos: usize,
     pub errores_cometidos: usize,
     pub tiempo_total_segundos: u64,
-    pub tiempo_restante_global: u32,
+    #[serde(default = "default_tiempo_limite_por_reto", alias = "tiempo_restante_global")]
+    pub tiempo_limite_por_reto_seg: u32,
+    #[serde(default)]
+    pub tiempo_restante_por_reto: HashMap<String, u32>,
     pub intentos: Vec<IntentoRegistro>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RankingEntry {
+    pub posicion: usize,
+    pub sesion_id: String,
+    pub participante: String,
+    pub calificacion: String,
+    pub retos_completados: usize,
+    pub total_retos: usize,
+    pub errores_cometidos: usize,
+    pub tiempo_total_segundos: u64,
+    pub fecha: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

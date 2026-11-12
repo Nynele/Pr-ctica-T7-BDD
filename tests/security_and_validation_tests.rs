@@ -1,9 +1,12 @@
-use simulador_sql_davante::app_state::SimuladorState;
+use simulador_sql_davante::app_state::{SimuladorState, TIEMPO_LIMITE_POR_RETO_SEGS};
 use simulador_sql_davante::db::DbManager;
-use simulador_sql_davante::export::Exporter;
-use simulador_sql_davante::models::Reto;
+use simulador_sql_davante::export::{Exporter, CSV_FILENAME, JSON_FILENAME};
+use simulador_sql_davante::models::{Reto, SesionResumen};
 use simulador_sql_davante::validator::Validator;
+use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
+use uuid::Uuid;
 
 #[test]
 fn test_load_all_30_retos() {
@@ -142,10 +145,20 @@ fn test_schema_excludes_actividades_evaluables_and_export_path() {
 
 #[test]
 fn test_session_lifecycle_timer_and_blocking() {
-    let mut state = SimuladorState::new();
+    let temp = TempDirGuard::new("simulador_sql_lifecycle");
+    let mut state = SimuladorState::new_with_export_dir(temp.0.clone());
     assert!(!state.sesion_iniciada, "Debe empezar en la pantalla de inicio");
     assert!(!state.temporizador_activo, "El cronómetro no debe correr antes de comenzar");
-    assert_eq!(state.tiempo_restante_global, 300);
+    assert_eq!(TIEMPO_LIMITE_POR_RETO_SEGS, 300);
+    assert_eq!(state.tiempo_restante_reto_actual(), 300);
+    assert!(!state.reto_actual_tiempo_agotado());
+    for reto in &state.retos {
+        assert_eq!(
+            state.tiempo_restante_reto(&reto.id),
+            300,
+            "Cada reto debe inicializarse con 300s (05:00)"
+        );
+    }
     assert_eq!(state.calificacion_texto(), "0/30");
     assert!(
         !state.retos.iter().any(|r| r.tabla == "actividades_evaluables"),
@@ -154,10 +167,11 @@ fn test_session_lifecycle_timer_and_blocking() {
 
     // Tick antes de comenzar no descuenta tiempo
     state.tick_segundo();
-    assert_eq!(state.tiempo_restante_global, 300);
+    assert_eq!(state.tiempo_restante_reto_actual(), 300);
+    assert_eq!(state.tiempo_total_segundos, 0);
 
     // Intentar ejecutar antes de iniciar está bloqueado
-    state.sql_buffer = "SELECT * FROM alumnos LIMIT 20;".to_string();
+    state.sql_buffer = state.retos[0].consulta_referencia.clone();
     state.ejecutar_y_comprobar();
     assert_eq!(state.historial_intentos.len(), 0);
 
@@ -166,8 +180,12 @@ fn test_session_lifecycle_timer_and_blocking() {
     assert!(state.sesion_iniciada);
     assert!(state.temporizador_activo);
 
+    let reto0_id = state.retos[0].id.clone();
+    let reto1_id = state.retos[1].id.clone();
+
     state.tick_segundo();
-    assert_eq!(state.tiempo_restante_global, 299);
+    assert_eq!(state.tiempo_restante_reto(&reto0_id), 299);
+    assert_eq!(state.tiempo_restante_reto(&reto1_id), 300);
     assert_eq!(state.tiempo_total_segundos, 1);
 
     // Respuesta incorrecta debe activar pistas automáticamente y sumar error
@@ -177,22 +195,243 @@ fn test_session_lifecycle_timer_and_blocking() {
     assert_eq!(state.calificacion_texto(), "0/30");
     assert!(state.mostrar_pistas, "Las pistas deben mostrarse automáticamente al fallar");
 
-    // Respuesta correcta suma acierto sobre 30
-    state.sql_buffer = "-- Reto Q01\nSELECT * FROM alumnos LIMIT 20;".to_string();
+    // Consumir los 299 segundos restantes en el primer reto
+    for _ in 0..299 {
+        state.tick_segundo();
+    }
+    assert_eq!(state.tiempo_restante_reto(&reto0_id), 0);
+    assert!(state.reto_actual_tiempo_agotado());
+    assert_eq!(state.tiempo_total_segundos, 300);
+    assert!(
+        !state.sesion_finalizada,
+        "Agotar los 300s de un reto no debe finalizar toda la sesión"
+    );
+    assert!(state.temporizador_activo);
+    assert!(
+        matches!(state.status_feedback, Some((false, ref msg)) if msg.contains("Tiempo agotado")),
+        "Debe mostrarse aviso claro de tiempo agotado para el reto"
+    );
+
+    // Intentar ejecutar la consulta canónica del primer reto con tiempo agotado queda bloqueado
+    let intentos_antes_bloqueo = state.historial_intentos.len();
+    state.sql_buffer = state.retos[0].consulta_referencia.clone();
+    state.ejecutar_y_comprobar();
+    assert_eq!(
+        state.historial_intentos.len(),
+        intentos_antes_bloqueo,
+        "No debe ejecutarse ni registrarse intento si el reto tiene el tiempo agotado"
+    );
+    assert_eq!(state.retos_superados.len(), 0);
+
+    // Cambiar al segundo reto: conserva sus 300s completos
+    state.seleccionar_reto(1);
+    assert_eq!(state.reto_actual_idx, 1);
+    assert_eq!(state.tiempo_restante_reto_actual(), 300);
+    assert!(!state.reto_actual_tiempo_agotado());
+
+    // Volver al primer reto conserva su tiempo agotado en 0 (no permite hacer trampas)
+    state.seleccionar_reto(0);
+    assert_eq!(state.tiempo_restante_reto_actual(), 0);
+    assert!(state.reto_actual_tiempo_agotado());
+
+    // Volver al segundo reto y ejecutar su consulta canónica sí funciona
+    state.seleccionar_reto(1);
+    state.sql_buffer = state.retos[1].consulta_referencia.clone();
     state.ejecutar_y_comprobar();
     assert_eq!(state.retos_superados.len(), 1);
     assert_eq!(state.calificacion_texto(), "1/30");
     assert_eq!(state.retos_no_superados(), 29);
 
-    // Finalizar sesión bloquea nuevas respuestas y detiene el temporizador
+    // Finalizar sesión bloquea nuevas respuestas, detiene el temporizador y permite exportar/cargar ranking
     state.finalizar_sesion(false);
     assert!(state.sesion_finalizada);
     assert!(!state.temporizador_activo);
 
     let intentos_antes = state.historial_intentos.len();
-    state.seleccionar_reto(1);
-    state.sql_buffer = "SELECT id_alumno, nombre, apellido1, localidad, fecha_alta FROM alumnos;".to_string();
+    state.seleccionar_reto(2);
+    state.sql_buffer = state.retos[2].consulta_referencia.clone();
     state.ejecutar_y_comprobar();
-    assert_eq!(state.historial_intentos.len(), intentos_antes, "No debe permitir nuevos envíos tras finalizar");
+    assert_eq!(
+        state.historial_intentos.len(),
+        intentos_antes,
+        "No debe permitir nuevos envíos tras finalizar"
+    );
     assert_eq!(state.calificacion_texto(), "1/30");
+
+    let temp = TempDirGuard::new("simulador_sql_finalizar_export");
+    let resumen = state.construir_resumen_sesion();
+    Exporter::export_all_in_dir(&resumen, &temp.0)
+        .expect("La exportación tras finalizar debe funcionar");
+    let ranking = Exporter::cargar_ranking_from_dir(&temp.0)
+        .expect("El ranking debe cargarse tras finalizar");
+    assert!(
+        ranking.iter().any(|r| r.sesion_id == resumen.sesion_id),
+        "La sesión finalizada debe aparecer en el ranking"
+    );
+}
+
+struct TempDirGuard(PathBuf);
+
+impl TempDirGuard {
+    fn new(prefix: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("{}_{}", prefix, Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("Debe crear directorio temporal de pruebas");
+        Self(dir)
+    }
+}
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn sample_session(
+    sesion_id: &str,
+    participante: &str,
+    retos_completados: usize,
+    errores_cometidos: usize,
+    tiempo_total_segundos: u64,
+) -> SesionResumen {
+    let total_retos: usize = 30;
+    SesionResumen {
+        sesion_id: sesion_id.to_string(),
+        participante: participante.to_string(),
+        fecha_inicio: "2026-11-12 10:00:00".to_string(),
+        fecha_fin: Some("2026-11-12 10:04:00".to_string()),
+        calificacion: format!("{}/{}", retos_completados, total_retos),
+        retos_completados,
+        retos_no_superados: total_retos.saturating_sub(retos_completados),
+        total_retos,
+        total_intentos: retos_completados + errores_cometidos,
+        errores_cometidos,
+        tiempo_total_segundos,
+        tiempo_limite_por_reto_seg: TIEMPO_LIMITE_POR_RETO_SEGS,
+        tiempo_restante_por_reto: HashMap::new(),
+        intentos: Vec::new(),
+    }
+}
+
+#[test]
+fn test_single_json_and_csv_initialized_clean_and_empty() {
+    let temp = TempDirGuard::new("simulador_sql_clean_init");
+    let ranking = Exporter::cargar_ranking_from_dir(&temp.0)
+        .expect("Debe inicializar JSON y CSV únicos vacíos y limpios");
+
+    let json_path = temp.0.join(JSON_FILENAME);
+    let csv_path = temp.0.join(CSV_FILENAME);
+    assert!(json_path.exists(), "Debe existir el archivo JSON único");
+    assert!(csv_path.exists(), "Debe existir el archivo CSV único");
+
+    let json_content = fs::read_to_string(&json_path).unwrap();
+    let sesiones: Vec<SesionResumen> = serde_json::from_str(&json_content).unwrap();
+    assert!(sesiones.is_empty(), "La clasificación inicial debe estar vacía sin usuarios de prueba");
+    assert!(ranking.is_empty());
+
+    // Verificar que el CSV único tiene cabecera y 0 filas de datos
+    let mut rdr = csv::Reader::from_path(&csv_path).unwrap();
+    let csv_rows: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+    assert!(csv_rows.is_empty());
+
+    // Si los archivos existen pero están vacíos (0 bytes), también deben inicializarse limpios
+    fs::write(&json_path, "").unwrap();
+    fs::write(&csv_path, "").unwrap();
+    let reinitialized = Exporter::cargar_ranking_from_dir(&temp.0).unwrap();
+    assert!(reinitialized.is_empty());
+}
+
+#[test]
+fn test_cumulative_export_and_no_duplicates_on_same_sesion_id() {
+    let temp = TempDirGuard::new("simulador_sql_cumulative");
+    let inicial = Exporter::cargar_ranking_from_dir(&temp.0).unwrap();
+    let base_count = inicial.len();
+    assert_eq!(base_count, 0);
+
+    let s1 = sample_session("SESION01", "Laura Gómez", 25, 2, 180);
+    let (json_path, csv_path) = Exporter::export_all_in_dir(&s1, &temp.0).unwrap();
+    assert_eq!(json_path, temp.0.join(JSON_FILENAME));
+    assert_eq!(csv_path, temp.0.join(CSV_FILENAME));
+
+    let s2 = sample_session("SESION02", "Pablo Ruiz", 28, 1, 210);
+    Exporter::export_all_in_dir(&s2, &temp.0).unwrap();
+
+    // Re-exportar SESION01 con datos actualizados: no debe duplicarse
+    let s1_actualizada = sample_session("SESION01", "Laura Gómez", 30, 1, 195);
+    Exporter::export_all_in_dir(&s1_actualizada, &temp.0).unwrap();
+
+    let json_content = fs::read_to_string(&json_path).unwrap();
+    let sesiones: Vec<SesionResumen> = serde_json::from_str(&json_content).unwrap();
+    assert_eq!(
+        sesiones.len(),
+        2,
+        "Debe conservar exactamente las 2 partidas reales sin duplicar SESION01"
+    );
+
+    let coincidencias_s1: Vec<&SesionResumen> = sesiones
+        .iter()
+        .filter(|s| s.sesion_id == "SESION01")
+        .collect();
+    assert_eq!(coincidencias_s1.len(), 1);
+    assert_eq!(coincidencias_s1[0].retos_completados, 30);
+    assert_eq!(coincidencias_s1[0].calificacion, "30/30");
+
+    let mut rdr = csv::Reader::from_path(&csv_path).unwrap();
+    let csv_rows: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+    assert_eq!(csv_rows.len(), base_count + 2);
+}
+
+#[test]
+fn test_ranking_ordering_by_score_desc_and_time_asc() {
+    let temp = TempDirGuard::new("simulador_sql_ranking_order");
+
+    // Crear un JSON controlado para aislar la comprobación de ordenación
+    let sesiones = vec![
+        sample_session("R_LENTO", "Marta Lenta", 28, 1, 220),
+        sample_session("R_RAPIDO", "Jorge Rápido", 28, 4, 140),
+        sample_session("R_TOP", "Ana Campeona", 30, 0, 260),
+        sample_session("R_EMPATE_ERR_MAS", "Luis Dos", 28, 5, 220),
+        sample_session("R_BAJO", "Pedro Base", 15, 0, 90),
+    ];
+    let json_path = Exporter::json_path_in_dir(&temp.0);
+    let csv_path = Exporter::csv_path_in_dir(&temp.0);
+    Exporter::export_sessions_json(&sesiones, &json_path).unwrap();
+    Exporter::export_sessions_csv(&sesiones, &csv_path).unwrap();
+
+    let ranking = Exporter::cargar_ranking_from_dir(&temp.0).unwrap();
+    assert_eq!(ranking.len(), 5);
+
+    let orden_ids: Vec<&str> = ranking.iter().map(|r| r.sesion_id.as_str()).collect();
+    assert_eq!(
+        orden_ids,
+        vec!["R_TOP", "R_RAPIDO", "R_LENTO", "R_EMPATE_ERR_MAS", "R_BAJO"]
+    );
+    assert_eq!(ranking[0].posicion, 1);
+    assert_eq!(ranking[1].posicion, 2);
+    assert_eq!(ranking[4].posicion, 5);
+}
+
+#[test]
+fn test_legacy_json_with_tiempo_restante_global_deserializes() {
+    let legacy_json = r#"[{
+        "sesion_id": "LEGACY01",
+        "participante": "Alumno Previo",
+        "fecha_inicio": "2026-11-10 10:00:00",
+        "fecha_fin": "2026-11-10 10:04:15",
+        "calificacion": "25/30",
+        "retos_completados": 25,
+        "retos_no_superados": 5,
+        "total_retos": 30,
+        "total_intentos": 28,
+        "errores_cometidos": 3,
+        "tiempo_total_segundos": 255,
+        "tiempo_restante_global": 45,
+        "intentos": []
+    }]"#;
+
+    let sesiones: Vec<SesionResumen> =
+        serde_json::from_str(legacy_json).expect("Debe deserializar JSON previo con tiempo_restante_global");
+    assert_eq!(sesiones.len(), 1);
+    assert_eq!(sesiones[0].sesion_id, "LEGACY01");
+    assert_eq!(sesiones[0].tiempo_limite_por_reto_seg, 45);
+    assert!(sesiones[0].tiempo_restante_por_reto.is_empty());
 }
